@@ -58,6 +58,15 @@
 | N28 | **属性对象基类** = ModelBase（userName + Name） + `u32 attrFlags`；各类型 payload：66 UInt64Attribute=u64、76 TextAttribute=string、79 URLAttribute=string+u32、86 PropertyAttribute=string+u32+2×readObject+readData、88 BinaryAttribute=i32+bytes、180 GuidAttribute=GUID(16B) | 观察 | E2 OdNwAttributeReader::readElement、各子类 readElement |
 | N29 | **PartitionProps 流**：按分区块索引定位属性块（`TBlockParams::getAttr`+`resolveBlockForIndex`+tuple<u32,u32,u32>/accumulate），块内为属性对象信封（ObjectReader）；逻辑层次提供块映射（`getPartPropsBlocks`） | 观察 | E2 parseStream@0xce5ca8 |
 
+## C6 轮（2026-10-13，M6 实例/场景）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| N30 | **版本门控阈值总表**：21/87/214/242/248/451（reader 字面门槛）；Fragment flag 掩码 `>242→&=0x6FFD3FFF`、`≤242→&=0x6FFD3F7F`、`≤87→>>24&0xF`；`NwFormatVersionEx` 流内 rdInt32（档位常量未暴露→U10） | 观察 | E2 FragmentReader@0xc5cac6、ModelBase/ModelItemNode 各门控点 |
+| N31 | **StaticTree**：readStaticItem= i32 项 + `function<OdNwFragment*(u32)>` 片段回调 + isShape 分支 → 叶/组递归；readTreeItem 组叶分发 | 观察（部分） | E2 readElement@0xc6033a/0xc62ee2、readStaticItem@0xc603b2 |
+| N32 | **变换对象定案**：14 ObjTranslation=3×f64；15 ObjTransRot=3×f64+4×f64 四元数；16 ObjTransRotScale=+f64 缩放；17 ObjMatrix=逐元素 f32 4×4；均以 alignPointer 起始 | 观察 | E2 各 readElement + readMatrix{Full,Linear,Translation} |
+| N33 | **场景装配**：`BuildScene(tree,mesh)` 扁平实例化（Name/Path/Transform/Mesh）；节点名 userName→displayName→name 回退 | 观察（设计） | go-nwd `nwd/scene.go` |
+
 ## 挂账（未知 → 队列）
 
 | ID | 问题 | 优先级 | 阻塞 | 状态 |
@@ -78,3 +87,4 @@
 | U14 | Fragment 11 flag 位 × 8 版本门控精确字段序 | P1 | M4/M5 联调 | 开 |
 | U15 | CommonSchemas 流顶层计数/字段序与真实流名 | P0 | M5 收口 | 开（夹具对齐布局） |
 | U16 | PropertyAttribute 嵌套值编码 + PartitionProps 块↔节点映射 | P1 | M5 收口 | 开 |
+| U17 | ObjMatrix(17) 元素数（12/16）与排列 | P2 | M6 收口 | 开 |

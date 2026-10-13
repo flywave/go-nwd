@@ -25,6 +25,7 @@ NWD 格式的分析与实现**独立于 go-dgn / go-rvt**，同级仓库。
 | `analysis/03-model-tree.md` | **对象信封 + 类型注册表 + 节点 Schema** | C3 ✅ 主体 |
 | `analysis/04-geometry.md` | **Fragment/几何块容器/顶点索引集** | C4 ✅ 主体 |
 | `analysis/05-properties.md` | **Schema 定义 + 属性对象 + PartitionProps** | C5 ✅ 主体 |
+| `analysis/06-instances-scene.md` | **变换对象 + 版本门控阈值 + 场景装配** | C6 ✅ 主体 |
 | `analysis/rea-extract-plan.md` | REA 提取清单（P0–P3） | 持续 |
 
 ## 实现路线
@@ -52,6 +53,11 @@ NWD 格式的分析与实现**独立于 go-dgn / go-rvt**，同级仓库。
    `File.DecodeSchemas` + `nwdinfo` schemas 输出；夹具端到端绿
    - 未竟：CommonSchemas 真实流布局/流名（U15）；PropertyAttribute 嵌套
      值与 PartitionProps 块映射（U16）；真实样例
+6. ✅ **M6 实例/场景（骨架落地）**：版本门控阈值总表（21/87/214/242/248/451）+
+   变换对象定案（14–17：平移/旋转四元数/缩放/矩阵）+ `Transform` 模型
+   （`Matrix4()` 组合）+ `BuildScene` 场景装配 + `nwdinfo` scene 输出；夹具绿
+   - 未竟：FormatVersionEx 档位常量（U10）；StaticTree 精确布局（U11）；
+     Fragment 位义（U14）；ObjMatrix 元素数（U17）；真实样例
 5. ⬜ **M5 属性/CDA**：CommonSchemas 字段树 + PartitionProps
 
 ## 包结构

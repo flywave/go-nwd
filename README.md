@@ -16,14 +16,17 @@ v8), built from reverse-engineering the ODA BimNv `TNW_Db.tx` module.
 - **M5 ✅ 骨架**: NwSchemaFieldType 枚举、CommonSchemas 流解码
   （Schema/Field/concepts）、属性对象解码（Text/URL/GUID/Binary/
   UInt64/Property）、`nwdinfo` schemas 输出
-  —— 夹具端到端绿；位打包量化几何、Fragment 精确位义、真实流布局待样本（U12/U15）
+- **M6 ✅ 骨架**: 版本门控阈值总表、变换对象（14–17：平移/旋转/缩放/矩阵）、
+  `Transform.Matrix4()`、`BuildScene` 场景装配、`nwdinfo` scene 输出
+  —— 夹具端到端绿；FormatVersionEx 档位常量、StaticTree、Fragment 位义待样本（U10/U11/U14）
 
 ## Layout
 
-- `nwd/` — 公共 API：`Detect` / `Open` / `Metadata` / `DecodeTree` / 对象信封
+- `nwd/` — 公共 API：`Detect` / `Open` / `Metadata` / `DecodeTree` /
+  `DecodeGeometryBlocks` / `DecodeSchemas` / `BuildScene` / 对象信封
 - `internal/nwstream/` — 签名 + StreamSplitter 容器（v8 footer/TOC/校验）
 - `internal/nwio/` — 小端字节读取原语
-- `cmd/nwdinfo` — JSON 转储 CLI（含分区树）
+- `cmd/nwdinfo` — JSON 转储 CLI（分区树 / 网格 / schema / 场景）
 - `cmd/nwdgen` — 合成 v8 夹具生成器（调试/演示用）
 - `analysis/` — 逆向文档（E1/E2 证据台账，不属 Go module）
 
@@ -35,6 +38,7 @@ import "github.com/flywave/go-nwd/nwd"
 kind := nwd.Detect(buf) // KindASCIILichunk / ...
 f, err := nwd.Open(buf) // Metadata + payload access
 tree, err := f.DecodeTree(f.StreamByName("LcOpNwdPartition"))
+scene := nwd.BuildScene(tree, nil)
 ```
 
 CLI:

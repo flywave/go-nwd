@@ -17,6 +17,7 @@ type TreeNode struct {
 	GuidIndex   uint32 `json:"guid_index,omitempty"`
 	ModelType   *uint32 `json:"model_type,omitempty"`
 	Usage       *int32  `json:"usage,omitempty"`
+	Transform   *Transform `json:"transform,omitempty"`
 	Children    []*TreeNode `json:"children,omitempty"`
 	AttrCount   int     `json:"attr_count,omitempty"`
 }
@@ -75,6 +76,7 @@ func objToNode(o *Object) *TreeNode {
 		GuidIndex: o.GuidIndex,
 		ModelType: o.ModelType,
 		Usage:     o.Usage,
+		Transform: o.Transform,
 		AttrCount: len(o.Attributes),
 	}
 	if o.ClassName != nil {

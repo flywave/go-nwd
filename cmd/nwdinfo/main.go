@@ -31,6 +31,7 @@ func main() {
 		Tree    *nwd.Tree    `json:"tree,omitempty"`
 		Mesh    *nwd.Mesh    `json:"mesh,omitempty"`
 		Schemas []nwd.Schema `json:"schemas,omitempty"`
+		Scene   *nwd.Scene   `json:"scene,omitempty"`
 	}{Metadata: f.Metadata}
 
 	if idx := f.StreamByName("LcOpNwdPartition"); idx >= 0 {
@@ -62,6 +63,11 @@ func main() {
 			}
 			break
 		}
+	}
+
+	// Assemble a flat scene from the tree + mesh (M6).
+	if out.Tree != nil {
+		out.Scene = nwd.BuildScene(out.Tree, out.Mesh)
 	}
 
 	enc := json.NewEncoder(os.Stdout)
