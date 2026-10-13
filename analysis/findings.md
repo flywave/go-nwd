@@ -171,3 +171,71 @@
 |---|---|---|---|
 | **N66** | **元素索引区在真实块上无法精确落位**：对真实块0（0..9640，vc=687）以 `readIndexTable` codec 做「精确落在块尾」搜索得 **0 个候选**；宽松容差（landing ≤7B）得 7731/24765 但疑为巧合。⇒ 元素组合（4×readObject 的嵌套集尺寸 + `readVertexesPerLine/readIndexesPerLine` 头部文法，且依赖不可恢复的 GeometryCompressSettings）**仍未收敛** | 观察（部分） | 样本 Geometry；U21 |
 | **N67** | **go-topo 对接落地**：新增 `go-topo/nwd.go`（NwdReader/NwdElement）——LineSet(95)→边复合 Shape（精确）；TriangleSet(94)→顶点+BBox（三角面待 U21，`SetTriangleSoup` 尽力而为）；`cmd/nwd2mesh` 导出 STEP（5.9MB/83954 实体）与二进制 STL（三角形汤 154292 面/7.4MB）；真实样本测试 `nwd_test.go` 通过 | 观察（实现） | go-topo |
+
+## C14 轮（2026-10-13，第二样本 GateHouse 验证）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N68** | **FormatVersionEx 431 的几何走压缩顶点路径**：GateHouse 首个元素（marker100/type94）的首子对象「VertexSet(60)」字段为 `[92][78]`（`fc≠vc*3`），与 BCCCH(v451) 的 `[vc][3vc]` 原始 f32 路径不同。⇒ 逐元素扫描会产生 15 个**巧合假阳性**（72 顶点）；改为「探测首元素：若 `fc≠vc*3` 即判定全流压缩并整段拒绝」→ GateHouse 0 块，BCCCH 14337 块/1,261,783 顶点（bbox 981×854×39 m，物理合理）。压缩顶点解码仍依赖不可恢复的设置（U20） | 观察（实现） | `nwd/geomreal.go`；样本 GateHouse block0 @0 |
+| **N69** | **NWD 可内嵌 SQLite 数据库**：GateHouse 流 `LcOpFileDatabaseElementNWD`（off 558605/size 11678）膨胀后以 `SQLite format 3\0` 起始，含 TimeLiner 表 schema（`TK_Item/TK_Object/TK_Step/TK_Resource/TK_ObjectStep/TK_ItemGroup/...`，本样本 0 行）。⇒ NWD 的 4D/TimeLiner 数据以标准 SQLite 存储；对应流名 `LcTl*`（LcTlTimelinerElement/LcTlSimulateDurationElement/LcTlGUISettingsElement）与 Presenter `LcOw*` 亦为 v431 新增 | 观察 | `LcOpFileDatabaseElementNWD` 头；`real_test.go:TestGateHouseEmbeddedSQLite` |
+| **N70** | **流命名空间与分区头随版本/来源变化**：GateHouse 流名前缀为 `gatehouse.nwd\`（非 `cache\`），并含独立流 `nwd:stretchr.lwi`（内嵌 LWI）。分区根 `LcOpNwdPartition`（user=`gatehouse.nwd`/class=`LcOaPartition`/display=`File`）**带 3 个 PublishAttribute**（BCCCH v451 仅 1）。⇒ 容器/流/根解析对命名空间与属性数量不敏感，跨版本成立 | 观察 | `real_test.go:TestGateHousePartitionRoot` |
+
+**第二样本验证结论**：容器（37 流/ver8/double/release）、流膨胀、分区根、嵌入 SQLite 在 v431 上**全部通过**；几何因压缩顶点路径（N68）安全拒绝（0 块，不产错误几何）。gatehouse golden 测试已加入 `nwd/real_test.go`（缺样本自动跳过）。
+
+## C15 轮（2026-10-13，U20/U21 收敛：压缩顶点 = 共享位置池 + 索引表）
+
+从 `TNW_Db.tx` 反汇编还原了顶点与索引的真实读取路径（`findings N71`）：
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N71** | **VertexSet 的“压缩顶点”并非加密设置，而是共享位置池 + 索引表**。`readElement@0xc26590`：`compressed ? readVertices : readInt32+3×f32`。`readVertices@0xc26e80`：`count=readInt32`；若 `count>0` 调 `readIndexes(buf, a=3, b=count, c=1, ...)`；`readIndexes` 的 `c==1` 分支读 `n=readUInt32` 个 f32 进 `flt`，置 `*ret=n/a`；随后（共享尾）若 `b > *ret` 调 `readIndexTable(buf, idx, b)`，否则 `idx=[0..b-1]` 恒等。最后 `fillPoint3dArrayByIndexes(count, idx, flt)`：`out[i]=(flt[3·idx[i]], +1, +2)`。⇒ **统一布局**：`[i32 vertexCount][i32 floatCount][floatCount×f32][当 floatCount/3 < vertexCount 时: 索引表]`。所谓 v451 “未压缩”= `floatCount==3·vertexCount`（恒等索引）；v431 “压缩”= 位置池去重 + 索引表。**U20 的 40B 设置流与几何压缩无关**；**U21 的“索引区”即此 `readIndexTable`** | 观察 | E2 readElement@0xc26590 / readVertices@0xc26e80 / readIndexes@0xc267c2 / fillPoint3dArrayByIndexes@0xc26a49 |
+| **N72** | **`readIndexTable@0xc275de` 精确文法**（2-bit 标签）：`0x00`=连续递增 run(长度 b&0x3F+1)；`0x40`=回抄 `out[len-(b&0x3F)]`；`0x80`=重复末值 (b&0x3F+1) 次；`0xD0`=字面量 `~(b&0x0F)`；`0xE0`=回抄 `out[len-((b&0x0F)<<8|next)]`；`0xF0`=16 位字面量（2 字节大端）；`0xF1`=32 位字面量（4 字节大端）；结束 `alignPointer<0>`。旧实现的 `0xD0/0xE0/0xF0` 语义有误，已按反汇编修正 | 观察 | E2 readIndexTable@0xc275de |
+| **N73** | **`readBits@0xc2737a`（量化路径，`count<0` 时）**：`sum=Σflags[i]`；读 `ceil(sum·cntB/32)` 个 i32，每字 32 位 **高位优先** 拆为 bit 流；按 `cntB` 行、每行 4 个分量，`flags[c]>0` 时读 `flags[c]` 位组成值；不足 `cntB·a` 补 0。配合 `readVertices` 负 count 分支：`count=-count; scale=readFloat; bbox[6]=6×f32; readIndexes(3,count,3,...)`，再按 `flags` 逐轴反量化 `init[i]`（0→0；1→span；≥2→span/sign(scale)）后 `fillPoint3dByInitFloats` | 观察 | E2 readBits@0xc2737a |
+
+**结果**：BCCCH 几何 14337→**16097 块 / 1,354,667 顶点**（新增 1760 个去重块）；GateHouse 几何由 0 → **32 块 / 963 顶点，bbox ≈ 11×7.6×3.4 m（物理合理）**。两个真实样本现均可完整解出顶点/索引；量化（负 count）路径按 N73 实现（样本未触发，留待验证）。
+
+## C16 轮（2026-10-13，三角面（Element）文法还原）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N74** | **三角元素（`TriangleSetElement` type94）读取顺序**：`readElement@0xc2c1ea` 依次 `readObject` 读 4 个子对象——VertexSet(60)、TexCoordSet(61)、NormalSet(`type 0`)、ColorSet(58)（缺失者不写）——`setVerticesData`；随后 `readVertexesPerLine`（每面顶点数）→ `setVerticesCountPerFace`；**再 align4**；若 `fmtVer>0x13(19)` 则 `readIndexesPerLine`（扁平索引）→ `setIndexes`。最后 `validateIndices/Normals/Colors/TexCoords`。面 = 按 `vertexesPerLine` 切分 `indexesPerLine` | 观察 | E2 TriangleSetElementReader::readElement@0xc2c1ea |
+| **N75** | **`readVertexesPerLine@0xc2ecd4` / `readIndexesPerLine@0xc2c918` 文法**。未压缩：`[u32 n]` + n 值（`fmtVer>0x4a(74)` 为 u16，否则 u32 低 16 位）+ align。压缩（vpl）：`[u32 total][align][i32 bits][i32 unique][readBits 位流][当 unique<total: 索引表]`；压缩（ipl）：`[i32 n][索引表 n 项]`。⇒ 面连通性可用 `readBits`+`readIndexTable` 解出 | 观察 | E2 readVertexesPerLine@0xc2ecd4 / readIndexesPerLine@0xc2c918 |
+| **N76** | **子对象亦走压缩变体**：`NormalSetShort(100)=[i32 -count][i32 flags][count×i8]`（BCCCH 元素0 实测 687 字节 0xd4）；`NormalSetFloat`/`ColorSet`/`TexCoordSet` 各有 `getGeometry*Compressed`+`get*PrecisionReducedFlags` 门控的压缩/未压缩读取器。⇒ 完整元素遍历需先解析这些子对象（依赖不可读的 GeometryCompress 40B 所承载的压缩标志，或逐类型试解析） | 观察（部分） | E2 NormalSetShortReader::readElement@0xc21e74 等 |
+
+**现状**：几何**顶点**（含 v451 恒等/v431 去重池）两样本均完整解出并落地（N71）；**面连通性**文法已还原为可测试原语 `ReadBits/ReadVertexesPerLine/ReadIndexesPerLine/SplitFaces`（`nwd/faces.go`，单测通过），待补子对象遍历后即可产出真实三角面（下一步）。
+
+## C17 轮（2026-10-13，元素面数组实测与索引空间）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N77** | **BCCCH 元素0 面数组实测**：`NormalSetShort` 之后为**压缩 vpl**：`[u32 total=145][i32 bits=6][i32 unique=145]`（@8980）+ 28 个字位流；`align` 后**压缩 ipl**：`[i32 n=977][索引表]`（@9104），解出 977 项、恰好在元素边界（≈9640）结束。`Σ(vpl)=977=len(ipl)` —— 佐证 vpl+ipl 解码正确 | 观察 | 样本 Geometry 元素0（0..9640） |
+| **N78** | **`validateIndices@0x10de390` 只做顶点数组扩容**：遍历索引求 `maxIdx`，然后 `vertices.resize(maxIdx+1)`（不做索引变换/相对化）。⇒ 元素索引空间**可超出该元素 VertexSet 的顶点数**（元素0：顶点687，索引max 973）→ 顶点为**跨元素共享/累积缓冲**（fragments/shared-nodes 层），面组装的索引空间基准仍待定（U23） | 观察 | E2 OdNwVerticesDataImpl::validateIndices@0x10de390 |
+
+**本轮小结**：元素面数组（vpl/ipl）解码已验证自洽（`Σvpl==ipl`），并新增可测试原语 `ReadBits/ReadVertexesPerLine/ReadIndexesPerLine/SplitFaces`。剩余：子对象（TexCoord/Normal/Color）遍历 + 索引空间的共享顶点基准（U23）。
+
+## C18 轮（2026-10-13，面组装落地：累积顶点池 + 相对索引）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N79** | **索引空间 = 累积顶点池 + 元素相对偏移**。几何流所有元素 VertexSet 依序拼成一个顶点池 `pool`；元素 i 的基准 `base_i = Σ_{j<i} vc_j`；其 `indexesPerLine` 值为**相对 `base_i`** 的偏移。实测：相对模型平均边长 4.14 vs 绝对模型 49.99（模型跨度≈980）⇒ 相对模型成立。`validateIndices` 只 `resize(maxIdx+1)`（N78）与此一致（池按需增长） | 观察（度量） | 样本 Geometry；elem0 idx≤973 > 自身687 |
+| **N80** | **面数组定位器（确定性验证）**：元素内自 `vsEnd` 起，取首个满足 «压缩 vpl = `[u32 total]`+align4+`[i32 bits][i32 unique]`+位流（alignPointer<0>=**4** 字节，非 8）+ 可选索引表» 且其后 «压缩 ipl = `[i32 n]`+索引表» **恰好终止于元素边界** 且 `Σ(vpl)==len(ipl)` 的候选。BCCCH 命中 7649/16097 个带顶点元素、324108 面、1,806,959 三角（退化 0.47%）；其中 36% 面为 3/4 边形，余为大多边形（shell/strip） | 观察（实现） | `nwd/elements.go`；对齐实测 align4 |
+
+**交付**：`nwd/elements.go`（`DecodeElements`：顶点 + 经验证的 vpl/ipl）、`nwd/mesh.go`（`DecodeMesh`：累积池 + 相对索引 + 扇形三角化）。BCCCH 产出 1.8M 三角、物理 bbox；GateHouse（v431）面数组定位未命中（其子对象布局不同，待续）。单测 `TestRealMesh` 通过。
+
+## C19 轮（2026-10-13，定位修正：NWD 为网格格式，改为直出 MST/glTF）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N81** | **NWD 几何是"显示/缓存网格"，非 BREP**：BimNv 几何类仅 `OdNwGeometryShell`（`getVerticesPerFace/getIndices/getTriangles`）、`LineSet`、`PointSet`（+少量 `Circle`/`Cylinder` 解析基元仅用于派生/标注）。无 BREP 拓扑（面-环-边-曲面/NURBS/ACIS）。⇒ 与 DGN/RVT/IFC 的**精确 BREP** 不同；NWD 由 Navisworks 对源模型**三角/面片化缓存**而来，精确几何被丢弃 | 观察 | BimNv 头文件；本仓几何解码 |
+| **N82** | **架构调整**：因 NWD 为网格，**移除 go-topo 的 NWD 接入**（`nwd.go`/`nwd_test.go`/`cmd/nwd2mesh` + go.mod 依赖），改采 **go-rvm 式直出**——`go-nwd/export`（`WriteMST`/`WriteGLTF`）+ `cmd/nwdexport`（`--format=mst|gltf|both`，`--gltf-format=glb|gltf`）。NWD→STEP 之类 BREP 转换（必有损）不再作为主线 | 观察（实现） | `export/export.go`；go-topo 移除 |
+
+**交付**：`go-nwd/export`（MST：单实例/单节点/三角面 + 平滑法线；glTF：POSITION/NORMAL/索引 + PBR 材质，.glb/.gltf）、`cmd/nwdexport`。BCCCH 直出 1.35M 顶点/1.81M 三角（.mst/.glb ≈54MB）；GateHouse 963 顶点。往返单测通过（`mst.MeshReadFrom` / `gltf.Open`）。
+
+## C20 轮（2026-10-13，解析基元三角化）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N83** | **解析基元的序列化与三角化（对齐 go-rvm 的基元处理）**。元素类型：`CircleElement=104`、`CylinderElement=105`（`TextElement=103` 未做，需字体）。布局（`readElement`）：Circle=`[i32 flags][f32×3 origin][f32×3 xVector][f32×3 yVector][f32 radius]`；Cylinder=`[i32 flags][f32×3 bottom][f32×3 top][f32×3 xAxis][f32×3 yAxis][f32 radius]`。SDK `toShell(pointPowerOfTwo=4)`→16 段：Circle 为**圆盘扇形**（EllipArc3d 的 major=minor=radius，即半径 r 的圆）；Cylinder 为**侧壁 + 双端盖**。go-nwd 按此实现（`nwd/primitives.go`），产出顶点 + 三角（identity 索引），经 `DecodeMesh` 进入 MST/glTF | 观察 | E2 Circle/CylinderElementReader::readElement@0xc32d82/0xc33eb2；toShell@0x10ef76c/0x10f284c |
+| **N84** | **两个真实样本均无解析基元**：元素类型直方图仅 94/95（TriangleSet/LineSet），无 103/104/105。⇒ 基元路径以合成单测验证（圆环半径/平面、圆柱顶点数/三角数、端到端 `DecodeMesh`）；样本导出不受影响（三角数不变 1,806,959）。同时导出器补齐 **LineSet→边**（MST `EdgeGroup`、glTF `PrimitiveLines`） | 观察 | 样本类型直方图；`primitives_test.go` |
+
+**交付**：`nwd/primitives.go`（`decodeCircleElement`/`decodeCylinderElement`/`circleRing` + 16 段三角化）、`elements.go`/`mesh.go` 接入 104/105、`export` 支持边。单测通过。

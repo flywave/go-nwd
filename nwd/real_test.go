@@ -228,3 +228,209 @@ func TestRealPartitionObjects(t *testing.T) {
 		t.Errorf("publish_date=%d out of plausible range", pub.PublishDate)
 	}
 }
+
+// ---- Second golden sample: GateHouse.nwd --------------------------------
+//
+// GateHouse.nwd is a much smaller (571 KB) NWD saved by Navisworks with
+// FormatVersionEx 431. It exercises version-specific differences that the
+// BCCCH sample (v451) does not:
+//   - streams are namespaced under "gatehouse.nwd\" rather than "cache\";
+//   - it carries TimeLiner (LcTl*) and Presenter (LcOw*) streams;
+//   - LcOpFileDatabaseElementNWD embeds an SQLite database (TimeLiner schema);
+//   - geometry stores vertices in the compressed form, so the raw
+//     VertexSet path does not apply (findings N68/N69).
+
+const realSampleGateHouse = "testdata/GateHouse.nwd"
+
+func openRealGateHouse(t *testing.T) *File {
+	t.Helper()
+	if _, err := os.Stat(realSampleGateHouse); err != nil {
+		t.Skipf("GateHouse sample not present: %v", err)
+	}
+	buf, err := os.ReadFile(realSampleGateHouse)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := Open(buf)
+	if err != nil {
+		t.Fatalf("Open GateHouse: %v", err)
+	}
+	return f
+}
+
+func TestGateHouseContainerInventory(t *testing.T) {
+	f := openRealGateHouse(t)
+	md := f.Metadata
+
+	if md.Kind != KindBinaryLichunk {
+		t.Errorf("kind=%v want nwd-binary-lichunk", md.Kind)
+	}
+	if md.Version != 8 {
+		t.Errorf("container version=%d want 8", md.Version)
+	}
+	if md.FileSize != 571422 {
+		t.Errorf("file size=%d want 571422", md.FileSize)
+	}
+	if len(md.Streams) != 37 {
+		t.Fatalf("streams=%d want 37", len(md.Streams))
+	}
+	// First stream is an embedded LWI file, then the gatehouse.nwd namespace.
+	if md.Streams[0].Name != "nwd:stretchr.lwi" {
+		t.Errorf("stream0 name=%q", md.Streams[0].Name)
+	}
+	byName := map[string]StreamInfo{}
+	for _, s := range md.Streams {
+		byName[s.Name] = s
+	}
+	for _, ns := range []string{
+		"gatehouse.nwd\\LcOpNwdGeometryCompress",
+		"gatehouse.nwd\\LcOpNwdGeometry",
+		"gatehouse.nwd\\LcOpNwdPartition",
+		"gatehouse.nwd\\LcOpNwdSpatialHierarchy",
+		"gatehouse.nwd\\LcTlTimelinerElement",
+		"gatehouse.nwd\\LcOwPresenterElement",
+		"LcOpFileDatabaseElementNWD",
+	} {
+		if _, ok := byName[ns]; !ok {
+			t.Errorf("stream %q missing", ns)
+		}
+	}
+}
+
+func TestGateHousePartitionRoot(t *testing.T) {
+	f := openRealGateHouse(t)
+	pi := f.StreamByName("gatehouse.nwd\\LcOpNwdPartition")
+	if pi < 0 {
+		t.Fatal("partition stream not found")
+	}
+	root, err := f.DecodePartitionRoot(pi)
+	if err != nil {
+		t.Fatalf("DecodePartitionRoot: %v", err)
+	}
+	if root.ClassName != "LcOaPartition" {
+		t.Errorf("class_name=%q", root.ClassName)
+	}
+	if root.DisplayName != "File" {
+		t.Errorf("display_name=%q", root.DisplayName)
+	}
+	// v431 partition carries 3 PublishAttributes (v451 BCCCH had 1).
+	if root.AttrCount != 3 || root.FirstAttrType != 92 {
+		t.Errorf("attr_count=%d first_attr=%d want 3/92", root.AttrCount, root.FirstAttrType)
+	}
+}
+
+// TestGateHouseGeometryDecoded verifies that the v431 deduplicated vertex path
+// (shared position pool + index table) is decoded to a physically plausible
+// mesh (findings N68/N71).
+func TestGateHouseGeometryDecoded(t *testing.T) {
+	f := openRealGateHouse(t)
+	gi := f.StreamByName("gatehouse.nwd\\LcOpNwdGeometry")
+	if gi < 0 {
+		t.Fatal("geometry stream not found")
+	}
+	blocks, err := f.DecodeGeometryVertices(gi, 0)
+	if err != nil {
+		t.Fatalf("DecodeGeometryVertices: %v", err)
+	}
+	if len(blocks) == 0 {
+		t.Fatal("expected decoded geometry blocks, got 0")
+	}
+	minx, miny, minz := 1e39, 1e39, 1e39
+	maxx, maxy, maxz := -1e39, -1e39, -1e39
+	total := 0
+	indexed := 0
+	for _, b := range blocks {
+		total += len(b.Vertices)
+		if b.IndexCount > 0 {
+			indexed++
+		}
+		for _, v := range b.Vertices {
+			minx, maxx = min(minx, v[0]), max(maxx, v[0])
+			miny, maxy = min(miny, v[1]), max(maxy, v[1])
+			minz, maxz = min(minz, v[2]), max(maxz, v[2])
+		}
+	}
+	if total < 100 {
+		t.Errorf("total vertices=%d want >=100", total)
+	}
+	if indexed == 0 {
+		t.Error("expected at least one index-table (deduplicated) block")
+	}
+	// GateHouse is a small building; every axis must be a bounded, plausible span.
+	for name, span := range map[string]float64{
+		"x": maxx - minx, "y": maxy - miny, "z": maxz - minz,
+	} {
+		if span <= 0 || span > 1000 {
+			t.Errorf("implausible %s span %.3f (bbox min %.2f max %.2f)", name, span, minx, maxx)
+		}
+	}
+}
+
+// TestGateHouseEmbeddedSQLite confirms the LcOpFileDatabaseElementNWD stream is
+// an embedded SQLite database (Navisworks TimeLiner store).
+func TestGateHouseEmbeddedSQLite(t *testing.T) {
+	f := openRealGateHouse(t)
+	di := f.StreamByName("LcOpFileDatabaseElementNWD")
+	if di < 0 {
+		t.Fatal("file database stream not found")
+	}
+	data, err := f.StreamData(di)
+	if err != nil {
+		t.Fatalf("StreamData: %v", err)
+	}
+	const magic = "SQLite format 3\x00"
+	if len(data) < len(magic) || string(data[:len(magic)]) != magic {
+		t.Fatalf("head=% x want SQLite magic", data[:min(16, len(data))])
+	}
+	// TimeLiner object tables must be named in the schema.
+	for _, tbl := range []string{"TK_Item", "TK_Object", "TK_Step"} {
+		if !containsBytes(data, []byte(tbl)) {
+			t.Errorf("schema missing table %q", tbl)
+		}
+	}
+}
+
+func containsBytes(hay, needle []byte) bool {
+	for i := 0; i+len(needle) <= len(hay); i++ {
+		if string(hay[i:i+len(needle)]) == string(needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestRealMesh reconstructs a triangle mesh from the 451 sample and checks it
+// is bounded and non-degenerate (findings N79).
+func TestRealMesh(t *testing.T) {
+	f := openReal(t)
+	gi := f.StreamByName("LcOpNwdGeometry")
+	if gi < 0 {
+		t.Fatal("geometry stream not found")
+	}
+	data, err := f.StreamData(gi)
+	if err != nil {
+		t.Fatalf("StreamData: %v", err)
+	}
+	m := DecodeMesh(data, 0)
+	if len(m.Triangles) < 100000 {
+		t.Fatalf("triangles=%d want >=100000", len(m.Triangles))
+	}
+	minx, maxx := 1e39, -1e39
+	for _, v := range m.Vertices {
+		if v[0] < minx {
+			minx = v[0]
+		}
+		if v[0] > maxx {
+			maxx = v[0]
+		}
+	}
+	if maxx-minx < 100 || maxx-minx > 100000 {
+		t.Errorf("implausible x span %.1f", maxx-minx)
+	}
+	// All triangle indices must be in range.
+	for _, tr := range m.Triangles {
+		if int(tr[0]) >= len(m.Vertices) || int(tr[1]) >= len(m.Vertices) || int(tr[2]) >= len(m.Vertices) {
+			t.Fatal("triangle index out of range")
+		}
+	}
+}
