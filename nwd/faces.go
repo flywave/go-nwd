@@ -220,6 +220,26 @@ func ReadIndexesPerLine(data []byte, pos int, indicesCompressed, wide bool, alig
 	return out, np, nil
 }
 
+// StripTriangles expands a single face's vertex indices into triangles exactly
+// as the SDK does (findings N85, OdNwGeometryShellImpl::createTriangleFaces
+// @0x10e1776): the face is a triangle strip, not a fan. For p[0..n-1] the k-th
+// triangle (k = 0..n-3) is (p[k], p[k+1], p[k+2]) for even k and
+// (p[k+1], p[k], p[k+2]) for odd k.
+func StripTriangles(p []uint16) [][3]uint16 {
+	if len(p) < 3 {
+		return nil
+	}
+	out := make([][3]uint16, 0, len(p)-2)
+	for k := 0; k+2 < len(p); k++ {
+		a, b, c := p[k], p[k+1], p[k+2]
+		if k%2 == 1 {
+			a, b = b, a
+		}
+		out = append(out, [3]uint16{a, b, c})
+	}
+	return out
+}
+
 // SplitFaces groups a flat index list into faces using the per-face vertex
 // counts from vertexesPerLine. A negative count (int16) introduces a triangle
 // fan/loop; its absolute value is used as the group size.

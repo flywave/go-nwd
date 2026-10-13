@@ -11,9 +11,11 @@ type ElementGeometry struct {
 	Start, End  int
 	ElementType int // 94 triangle, 95 line, 96 point
 	Vertices    [][3]float64
-	PerFace     []uint16 // vertices per face (from vertexesPerLine)
-	Indices     []uint16 // flat index list (from indexesPerLine)
+	Normals     [][3]float64 // per-vertex normals when a NormalSet child is present
+	PerFace     []uint16     // vertices per face (from vertexesPerLine)
+	Indices     []uint16     // flat index list (from indexesPerLine)
 	FacesFound  bool
+	Text        *TextGeometry // set for text elements (type 103)
 }
 
 // DecodeElements walks the geometry stream, extracts every element envelope and
@@ -28,7 +30,7 @@ func DecodeElements(stream []byte, limit int) []ElementGeometry {
 			continue
 		}
 		t := int(binary.LittleEndian.Uint32(stream[pos+4:]))
-		if t == 94 || t == 95 || t == 96 || t == 104 || t == 105 {
+		if t == 94 || t == 95 || t == 96 || t == 103 || t == 104 || t == 105 {
 			starts = append(starts, pos)
 		}
 	}
@@ -39,6 +41,15 @@ func DecodeElements(stream []byte, limit int) []ElementGeometry {
 			e = starts[i+1]
 		}
 		typ := int(binary.LittleEndian.Uint32(stream[s+4:]))
+		// Text elements carry metadata only (tessellation needs a font).
+		if typ == 103 {
+			el := ElementGeometry{Start: s, End: e, ElementType: typ}
+			if txt, _, ok := decodeTextElement(stream, s+8); ok {
+				el.Text = txt
+			}
+			out = append(out, el)
+			continue
+		}
 		// Analytic primitives carry no VertexSet child.
 		switch typ {
 		case 104:
@@ -63,7 +74,12 @@ func DecodeElements(stream []byte, limit int) []ElementGeometry {
 			verts, vsEnd, ok := decodeVertexSet(stream, vs)
 			if ok {
 				el.Vertices = verts
-				if perFace, idx, ok := locateFaceArrays(stream, vsEnd, e); ok {
+				// Deterministic child-object traversal first (N87); fall back to
+				// the boundary-anchored scan for layouts the walker does not
+				// recognise (N80). Both produce identical faces on the 451 sample.
+				if perFace, idx, normals, ok := locateFacesDeterministic(stream, vsEnd, e); ok {
+					el.PerFace, el.Indices, el.Normals, el.FacesFound = perFace, idx, normals, true
+				} else if perFace, idx, ok := locateFaceArrays(stream, vsEnd, e); ok {
 					el.PerFace, el.Indices, el.FacesFound = perFace, idx, true
 				}
 			}

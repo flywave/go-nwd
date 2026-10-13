@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/flywave/gltf"
+	"github.com/flywave/gltf/modeler"
 	mst "github.com/flywave/go-mst"
+	"github.com/flywave/go3d/vec3"
 
 	"github.com/flywave/go-nwd/nwd"
 )
@@ -63,5 +65,56 @@ func TestWriteGLTF(t *testing.T) {
 		if len(doc.Meshes) != 1 || len(doc.Meshes[0].Primitives) != 2 {
 			t.Errorf("binary=%v meshes=%d prims=%d", binary, len(doc.Meshes), len(doc.Meshes[0].Primitives))
 		}
+	}
+}
+
+// TestWriteGLTFUsesMeshNormals verifies the export prefers the mesh's own
+// per-vertex normals (findings N92/N93) over computed smooth normals.
+func TestWriteGLTFUsesMeshNormals(t *testing.T) {
+	m := sample()
+	m.Normals = [][3]float64{{0, 0, -1}, {0, -1, 0}, {-1, 0, 0}, {0, 0, -1}}
+	p := filepath.Join(t.TempDir(), "n.gltf")
+	if err := WriteGLTF(p, m, false, [3]float32{0.5, 0.5, 0.5}); err != nil {
+		t.Fatalf("WriteGLTF: %v", err)
+	}
+	doc, err := gltf.Open(p)
+	if err != nil {
+		t.Fatalf("gltf.Open: %v", err)
+	}
+	idx := doc.Meshes[0].Primitives[0].Attributes[gltf.NORMAL]
+	got, err := modeler.ReadNormal(doc, doc.Accessors[idx], nil)
+	if err != nil {
+		t.Fatalf("ReadNormal: %v", err)
+	}
+	want := [][3]float32{{0, 0, -1}, {0, -1, 0}, {-1, 0, 0}, {0, 0, -1}}
+	if len(got) != len(want) {
+		t.Fatalf("normals=%v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("normal[%d]=%v want %v", i, got[i], want[i])
+		}
+	}
+}
+
+// TestWriteMSTUsesMeshNormals verifies the MST export writes the mesh's own
+// per-vertex normals when present (findings N94).
+func TestWriteMSTUsesMeshNormals(t *testing.T) {
+	m := sample()
+	m.Normals = [][3]float64{{0, 0, -1}, {0, -1, 0}, {-1, 0, 0}, {0, 0, -1}}
+	p := filepath.Join(t.TempDir(), "n.mst")
+	if err := WriteMST(p, m, [3]byte{200, 200, 200}); err != nil {
+		t.Fatalf("WriteMST: %v", err)
+	}
+	got, err := mst.MeshReadFrom(p)
+	if err != nil {
+		t.Fatalf("MeshReadFrom: %v", err)
+	}
+	nd := got.Instances[0].Mesh.Nodes[0]
+	if len(nd.Normals) != 4 {
+		t.Fatalf("normals=%d want 4", len(nd.Normals))
+	}
+	if nd.Normals[1] != (vec3.T{0, -1, 0}) {
+		t.Errorf("normal[1]=%v want (0,-1,0)", nd.Normals[1])
 	}
 }

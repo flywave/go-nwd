@@ -80,6 +80,35 @@ func TestSplitFaces(t *testing.T) {
 	}
 }
 
+// TestStripTriangles pins the SDK's rolling-window face expansion (N85): a
+// quad p0..p3 yields (p0,p1,p2),(p2,p1,p3) — the strip form, not the fan
+// (p0,p1,p2),(p0,p2,p3).
+func TestStripTriangles(t *testing.T) {
+	quad := StripTriangles([]uint16{0, 1, 2, 3})
+	wantQuad := [][3]uint16{{0, 1, 2}, {2, 1, 3}}
+	if len(quad) != len(wantQuad) {
+		t.Fatalf("quad=%v want %v", quad, wantQuad)
+	}
+	for i := range wantQuad {
+		if quad[i] != wantQuad[i] {
+			t.Errorf("quad[%d]=%v want %v", i, quad[i], wantQuad[i])
+		}
+	}
+	pent := StripTriangles([]uint16{0, 1, 2, 3, 4})
+	wantPent := [][3]uint16{{0, 1, 2}, {2, 1, 3}, {2, 3, 4}}
+	if len(pent) != len(wantPent) {
+		t.Fatalf("pent=%v want %v", pent, wantPent)
+	}
+	for i := range wantPent {
+		if pent[i] != wantPent[i] {
+			t.Errorf("pent[%d]=%v want %v", i, pent[i], wantPent[i])
+		}
+	}
+	if StripTriangles([]uint16{0, 1}) != nil {
+		t.Error("degenerate face should yield no triangles")
+	}
+}
+
 func appendFaceU32(b []byte, v uint32) []byte {
 	var t [4]byte
 	binary.LittleEndian.PutUint32(t[:], v)

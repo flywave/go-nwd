@@ -28,7 +28,14 @@ func WriteMST(path string, m *nwd.SceneMesh, color [3]byte) error {
 			tri.Faces = append(tri.Faces, &mst.Face{Vertex: [3]uint32{t[0], t[1], t[2]}})
 		}
 		node.FaceGroup = []*mst.MeshTriangle{tri}
-		node.ReComputeNormal()
+		if nrm := meshNormals(m); nrm != nil {
+			node.Normals = make([]vec3.T, len(nrm))
+			for i, n := range nrm {
+				node.Normals[i] = vec3.T{n[0], n[1], n[2]}
+			}
+		} else {
+			node.ReComputeNormal()
+		}
 	}
 	if len(m.Lines) > 0 {
 		edges := make([][2]uint32, len(m.Lines))
@@ -59,7 +66,7 @@ func WriteGLTF(path string, m *nwd.SceneMesh, binary bool, color [3]float32) err
 	posAcc := modeler.WritePosition(doc, positions)
 	attrs := gltf.Attribute{gltf.POSITION: posAcc}
 
-	if nrm := computeSmoothNormals(m); nrm != nil {
+	if nrm := meshNormals(m); nrm != nil {
 		attrs[gltf.NORMAL] = modeler.WriteNormal(doc, nrm)
 	}
 
@@ -113,6 +120,33 @@ func WriteGLTF(path string, m *nwd.SceneMesh, binary bool, color [3]float32) err
 		return gltf.SaveBinary(doc, path)
 	}
 	return gltf.Save(doc, path)
+}
+
+// meshNormals returns the mesh's own per-vertex normals when the geometry
+// carried them (NormalSet children, findings N92/N93), otherwise computed
+// smooth normals as a fallback.
+func meshNormals(m *nwd.SceneMesh) [][3]float32 {
+	if len(m.Normals) == len(m.Vertices) && len(m.Vertices) > 0 {
+		out := make([][3]float32, len(m.Normals))
+		any := false
+		for i, n := range m.Normals {
+			out[i] = [3]float32{float32(n[0]), float32(n[1]), float32(n[2])}
+			if n[0] != 0 || n[1] != 0 || n[2] != 0 {
+				any = true
+			}
+		}
+		// Fill empty normals from the smooth estimate so the accessor is valid.
+		if any {
+			fallback := computeSmoothNormals(m)
+			for i := range out {
+				if out[i] == [3]float32{} && fallback != nil {
+					out[i] = fallback[i]
+				}
+			}
+			return out
+		}
+	}
+	return computeSmoothNormals(m)
 }
 
 func computeSmoothNormals(m *nwd.SceneMesh) [][3]float32 {
