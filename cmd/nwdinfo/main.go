@@ -36,6 +36,8 @@ func main() {
 		Scene            *nwd.Scene         `json:"scene,omitempty"`
 		PropertyNames    []nwd.NameRecord   `json:"property_names,omitempty"`
 		Geometry         *geomSummary       `json:"geometry,omitempty"`
+		Fragments        *fragSummary       `json:"fragments,omitempty"`
+		Validation       *nwd.MeshStats     `json:"validation,omitempty"`
 	}{Metadata: f.Metadata}
 
 	if idx := f.StreamByName("LcOpNwdPartition"); idx >= 0 {
@@ -87,24 +89,54 @@ func main() {
 		}
 	}
 
-	// Extract real geometry vertices from the Geometry stream (M4 real file).
+	// Geometry stream: elements, faces and vertices via the deterministic
+	// element decoder (findings N74-N94).
 	if idx := f.StreamByName("LcOpNwdGeometry"); idx >= 0 {
-		if blocks, err := f.DecodeGeometryVertices(idx, 0); err == nil {
-			g := &geomSummary{Blocks: len(blocks)}
-			for _, b := range blocks {
-				g.Vertices += b.VertexCount
+		if data, err := f.StreamData(idx); err == nil {
+			els := nwd.DecodeElements(data, 0)
+			g := &geomSummary{Elements: len(els)}
+			for _, e := range els {
+				g.Vertices += len(e.Vertices)
+				if e.FacesFound {
+					g.FaceElements++
+					g.Faces += len(e.PerFace)
+				}
 			}
-			if len(blocks) > 0 {
-				b0 := blocks[0]
-				g.SampleElement = b0.ElementType
-				g.SampleVertices = b0.VertexCount
-				if len(b0.Vertices) > 0 {
-					g.FirstVertex = b0.Vertices[0][:]
+			if len(els) > 0 {
+				g.SampleElement = els[0].ElementType
+				g.SampleVertices = len(els[0].Vertices)
+				if len(els[0].Vertices) > 0 {
+					g.FirstVertex = els[0].Vertices[0][:]
 				}
 			}
 			out.Geometry = g
 		} else {
 			fmt.Fprintln(os.Stderr, "note: geometry:", err)
+		}
+	}
+
+	// Fragments stream: placement transforms and geometry links (N95-N109).
+	if idx := f.StreamByName(nwd.StreamFragments); idx >= 0 {
+		if data, err := f.StreamData(idx); err == nil {
+			recs := nwd.DecodeFragments(data)
+			fs := &fragSummary{Fragments: len(recs)}
+			for _, r := range recs {
+				if r.Transform != nil {
+					fs.WithTransform++
+				}
+				if r.GeomIndex > 0 {
+					fs.WithGeomIndex++
+				}
+			}
+			out.Fragments = fs
+		}
+	}
+
+	// Mesh consistency invariants (N97/N98).
+	if idx := f.StreamByName("LcOpNwdGeometry"); idx >= 0 {
+		if data, err := f.StreamData(idx); err == nil {
+			st := nwd.ValidateMesh(nwd.DecodeMesh(data, 0))
+			out.Validation = &st
 		}
 	}
 
@@ -116,8 +148,16 @@ func main() {
 	}
 }
 
+type fragSummary struct {
+	Fragments     int `json:"fragments"`
+	WithTransform int `json:"with_transform"`
+	WithGeomIndex int `json:"with_geometry_index"`
+}
+
 type geomSummary struct {
-	Blocks         int       `json:"blocks"`
+	Elements       int       `json:"elements"`
+	FaceElements   int       `json:"face_elements"`
+	Faces          int       `json:"faces"`
 	Vertices       int       `json:"vertices"`
 	SampleElement  int       `json:"sample_element_type"`
 	SampleVertices int       `json:"sample_vertex_count"`

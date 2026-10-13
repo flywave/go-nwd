@@ -1,6 +1,8 @@
 package nwd
 
 import (
+	"encoding/binary"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -433,4 +435,307 @@ func TestRealMesh(t *testing.T) {
 			t.Fatal("triangle index out of range")
 		}
 	}
+}
+
+// TestElementWalkDeterministic pins findings N87/N88 on the 451 sample:
+//   - the deterministic child-object walk reproduces the boundary-anchored
+//     scan for every face-bearing element (same vertexesPerLine/indexesPerLine);
+//   - the elements the scan does not resolve carry an empty face list (a
+//     zero-vertex face yielding no triangles), not a locator miss.
+func TestElementWalkDeterministic(t *testing.T) {
+	f := openReal(t)
+	gi := f.StreamByName("LcOpNwdGeometry")
+	data, err := f.StreamData(gi)
+	if err != nil {
+		t.Fatalf("StreamData: %v", err)
+	}
+	n := len(data)
+	var starts []int
+	for pos := 0; pos+8 <= n; pos++ {
+		if binary.LittleEndian.Uint32(data[pos:]) != uint32(envNewBase) {
+			continue
+		}
+		tt := int(binary.LittleEndian.Uint32(data[pos+4:]))
+		if tt == 94 || tt == 95 || tt == 96 || tt == 104 || tt == 105 {
+			starts = append(starts, pos)
+		}
+	}
+	agree, differ, found, emptyFaces := 0, 0, 0, 0
+	for i, s := range starts {
+		e := n
+		if i+1 < len(starts) {
+			e = starts[i+1]
+		}
+		if int(binary.LittleEndian.Uint32(data[s+4:])) != 94 {
+			continue
+		}
+		vs := s + 8
+		if vs+16 > n || binary.LittleEndian.Uint32(data[vs:]) != uint32(envNewBase+1) || binary.LittleEndian.Uint32(data[vs+4:]) != 60 {
+			continue
+		}
+		_, vsEnd, ok := decodeVertexSet(data, vs)
+		if !ok {
+			continue
+		}
+		pf1, ix1, h := locateFaceArrays(data, vsEnd, e)
+		pf2, ix2, _, d := locateFacesDeterministic(data, vsEnd, e)
+		if h {
+			found++
+		} else if e-4 >= vsEnd && binary.LittleEndian.Uint32(data[e-4:]) == 0 {
+			emptyFaces++
+		}
+		if h != d {
+			differ++
+			continue
+		}
+		if h && (!eqU16(pf1, pf2) || !eqU16(ix1, ix2)) {
+			differ++
+			continue
+		}
+		agree++
+	}
+	if differ != 0 {
+		t.Errorf("deterministic walk disagrees with scan on %d elements", differ)
+	}
+	if found < 7000 {
+		t.Errorf("face-bearing elements = %d, want >= 7000", found)
+	}
+	if emptyFaces < 5000 {
+		t.Errorf("empty-face elements = %d, want >= 5000", emptyFaces)
+	}
+	t.Logf("face-bearing=%d emptyFace=%d agree=%d", found, emptyFaces, agree)
+}
+
+func eqU16(a, b []uint16) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestElementNormals decodes per-vertex normals from the 451 sample's
+// NormalSetShort children (finding N92) and checks every decoded normal is unit
+// length (or zero when the set marks an empty normal).
+func TestElementNormals(t *testing.T) {
+	f := openReal(t)
+	gi := f.StreamByName("LcOpNwdGeometry")
+	data, err := f.StreamData(gi)
+	if err != nil {
+		t.Fatalf("StreamData: %v", err)
+	}
+	els := DecodeElements(data, 0)
+	withN, total, nonZero := 0, 0, 0
+	for _, e := range els {
+		if len(e.Normals) == 0 {
+			continue
+		}
+		withN++
+		for _, n := range e.Normals {
+			total++
+			l := n[0]*n[0] + n[1]*n[1] + n[2]*n[2]
+			if l == 0 {
+				continue
+			}
+			nonZero++
+			if l < 1-1e-6 || l > 1+1e-6 {
+				t.Fatalf("normal %v has |n|^2=%v, want 1", n, l)
+			}
+		}
+	}
+	t.Logf("elementsWithNormals=%d normals=%d nonZero=%d", withN, total, nonZero)
+}
+
+// TestFragmentsHeader decodes the 451 sample's fragments stream header
+// (finding N95): 49766 records, first fragment scale 1.0.
+func TestFragmentsHeader(t *testing.T) {
+	f := openReal(t)
+	gi := f.StreamByName(StreamFragments)
+	if gi < 0 {
+		t.Fatal("fragments stream not found")
+	}
+	data, err := f.StreamData(gi)
+	if err != nil {
+		t.Fatalf("StreamData: %v", err)
+	}
+	count, first, ok := DecodeFragmentsHeader(data)
+	if !ok {
+		t.Fatal("DecodeFragmentsHeader failed")
+	}
+	if count != 49766 {
+		t.Errorf("count=%d want 49766", count)
+	}
+	if first.Scale != 1.0 {
+		t.Errorf("first.Scale=%v want 1", first.Scale)
+	}
+	t.Logf("fragments=%d first=%+v", count, first)
+}
+
+// TestMeshValidation runs the reference-free consistency invariants (finding
+// N97, plan battle E2) on the 451 sample and pins the pool-baseline (U23)
+// evidence: a scrambled geometry would show a high degenerate fraction and
+// near-zero edge sharing.
+func TestMeshValidation(t *testing.T) {
+	f := openReal(t)
+	gi := f.StreamByName("LcOpNwdGeometry")
+	data, err := f.StreamData(gi)
+	if err != nil {
+		t.Fatalf("StreamData: %v", err)
+	}
+	st := ValidateMesh(DecodeMesh(data, 0))
+	if st.Degenerate*50 > st.Triangles {
+		t.Errorf("degenerate=%d/%d > 2%%", st.Degenerate, st.Triangles)
+	}
+	if st.InteriorEdges < 2*st.BoundaryEdges {
+		t.Errorf("interior=%d boundary=%d: too few shared edges", st.InteriorEdges, st.BoundaryEdges)
+	}
+	if st.Referenced*2 < st.Vertices {
+		t.Errorf("referenced=%d/%d < 50%%", st.Referenced, st.Vertices)
+	}
+	t.Logf("vertices=%d triangles=%d degenerate=%d referenced=%d interior=%d boundary=%d nonmanifold=%d",
+		st.Vertices, st.Triangles, st.Degenerate, st.Referenced, st.InteriorEdges, st.BoundaryEdges, st.NonManifoldEdges)
+}
+
+// TestFragmentsWalk walks every fragment record with its placement transform
+// and geometry reference (findings N99/N101/N103).
+func TestFragmentsWalk(t *testing.T) {
+	f := openReal(t)
+	gi := f.StreamByName(StreamFragments)
+	data, err := f.StreamData(gi)
+	if err != nil {
+		t.Fatalf("StreamData: %v", err)
+	}
+	recs := DecodeFragments(data)
+	if len(recs) < 45000 || len(recs) > 50000 {
+		t.Errorf("fragments=%d want ~47000", len(recs))
+	}
+	withT, withG, both := 0, 0, 0
+	mn, mx := 1<<30, -1
+	for _, r := range recs {
+		if r.Transform != nil {
+			withT++
+			m := r.Transform.Matrix4()
+			for _, v := range m {
+				if math.IsNaN(v) || math.IsInf(v, 0) {
+					t.Fatalf("non-finite transform matrix %v", m)
+				}
+			}
+		}
+		if r.GeomIndex >= 0 {
+			withG++
+			if r.GeomIndex < mn {
+				mn = r.GeomIndex
+			}
+			if r.GeomIndex > mx {
+				mx = r.GeomIndex
+			}
+		}
+		if r.Transform != nil && r.GeomIndex >= 0 {
+			both++
+		}
+	}
+	if both < 20000 {
+		t.Errorf("fragments with transform+geometry=%d want >=20000", both)
+	}
+	t.Logf("fragments=%d withTransform=%d withGeomIndex=%d both=%d geomIndexRange=[%d,%d]",
+		len(recs), withT, withG, both, mn, mx)
+}
+
+// TestFragmentGeometryLink confirms the fragment->geometry mapping (findings
+// N104/N106): the geometry ref's local bbox equals the local bbox of the
+// referenced element (GeomIndex is 1-based).
+func TestFragmentGeometryLink(t *testing.T) {
+	f := openReal(t)
+	fd, err := f.StreamData(f.StreamByName(StreamFragments))
+	if err != nil {
+		t.Fatalf("StreamData: %v", err)
+	}
+	gd, err := f.StreamData(f.StreamByName("LcOpNwdGeometry"))
+	if err != nil {
+		t.Fatalf("StreamData: %v", err)
+	}
+	els := DecodeElements(gd, 0)
+	recs := DecodeFragments(fd)
+	match, tot := 0, 0
+	for _, r := range recs {
+		gi := r.GeomElementIndex()
+		if gi < 0 || gi >= len(els) || len(els[gi].Vertices) == 0 {
+			continue
+		}
+		var emn, emx [3]float64
+		for c := 0; c < 3; c++ {
+			emn[c], emx[c] = 1e30, -1e30
+		}
+		for _, v := range els[gi].Vertices {
+			for c := 0; c < 3; c++ {
+				if v[c] < emn[c] {
+					emn[c] = v[c]
+				}
+				if v[c] > emx[c] {
+					emx[c] = v[c]
+				}
+			}
+		}
+		tot++
+		d := 0.0
+		for c := 0; c < 3; c++ {
+			d += math.Abs((emn[c]+emx[c])/2 - float64(r.RefMin[c]+r.RefMax[c])/2)
+		}
+		if d < 0.01 {
+			match++
+		}
+	}
+	if tot < 15000 {
+		t.Fatalf("linked fragments=%d want >=15000", tot)
+	}
+	if match*100 < tot*90 {
+		t.Errorf("bbox match %d/%d < 90%%", match, tot)
+	}
+	t.Logf("linked=%d bboxMatch=%d (%.1f%%)", tot, match, 100*float64(match)/float64(tot))
+}
+
+// TestBuildInstances builds fragment placements and confirms the shared-pool
+// consequence (findings N108/N109): element face indices are mostly not local,
+// so instancing is exposed as placement metadata, not per-element re-meshing.
+func TestBuildInstances(t *testing.T) {
+	f := openReal(t)
+	fd, _ := f.StreamData(f.StreamByName(StreamFragments))
+	gd, _ := f.StreamData(f.StreamByName("LcOpNwdGeometry"))
+	els := DecodeElements(gd, 0)
+	inst := BuildInstances(DecodeFragments(fd), els)
+	if len(inst) < 15000 {
+		t.Fatalf("instances=%d want >=15000", len(inst))
+	}
+	for _, in := range inst {
+		m := in.Transform.Matrix4()
+		for _, v := range m {
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				t.Fatal("non-finite instance matrix")
+			}
+		}
+	}
+	local, tot := 0, 0
+	for _, e := range els {
+		if !e.FacesFound || len(e.Indices) == 0 {
+			continue
+		}
+		tot++
+		mx := 0
+		for _, v := range e.Indices {
+			if int(v) > mx {
+				mx = int(v)
+			}
+		}
+		if mx < len(e.Vertices) {
+			local++
+		}
+	}
+	if local*10 > tot {
+		t.Errorf("local-only indices %d/%d unexpectedly high", local, tot)
+	}
+	t.Logf("instances=%d elements=%d localOnlyIndices=%d/%d", len(inst), len(els), local, tot)
 }
