@@ -96,6 +96,16 @@
 | **N48** | **几何块结构**（解压后对象信封，每块自 marker=100 起）：`Element(94 TriangleSetElem / 95 LineSetElem / 96 PointSetElem)` → `VertexSet(60)` = `[i32 vertexCount][i32 floatCount=vertexCount*3][f32 x,y,z ×]*`（8 字节对齐）→ `NormalSetShort(100)`/`ColorSet(58)`。实测 **14,331 块 / 1,261,016 顶点**（真实模型点云） | 观察 | 样本 Geometry；`DecodeGeometryVertices` |
 | N49 | 三角形/线/点**索引**为量化集（NormalSetShort 计数带符号位 0xfffffd51、位打包），未解码 → U21；当前提取顶点坐标 | 观察（部分） | 样本块尾 |
 
+## C9 轮（2026-10-13，U21 几何索引 — 结构定案）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N50** | 三角形元素 = **GeometryShell**：`OdNwGraphicTriangleSetElementReader::readElement` 建壳并调用 `setIndexes(OdArray<u16>)` + `setVerticesCountPerFace(OdArray<u16>)`；4 个嵌套 readObject（Vertex/Normal/TexCoord/Color），随后 `readIndexesPerLine` | 观察 | E2 @0xc2c1ea |
+| **N51** | **索引编码** `readIndexesPerLine`：`i32 count` + `count×u16`（未压缩）；压缩时 `readUInt32` + `readIndexTable(OdArray<u32>)` 映射；`alignPointer<0>`(4B) 收尾。线集用 `readVertexesPerLine`（同构，另含 per-line 长度）| 观察 | E2 readIndexesPerLine@0xc2c918、readVertexesPerLine@0xc2ecd4 |
+| N52 | 实测本样本元素为**表压缩索引**（NormalSetShort 计数带符号位；块尾无原始 u16 数组），故三角面尚未连接（U21 收口需 `readIndexTable` 语义） | 观察（部分） | 样本 Geometry；`nwdinfo` geometry 摘要 |
+| **N53** | `readIndexTable` = **2-bit 标签变长字节流**：每字节 `& 0xC0` 分派（0x00/0x40/0x80/0xC0 四态），低 6 位为值位；即量化/位打包索引。完整状态机待展开（U21） | 观察 | E2 readIndexTable@0xc275de |
+| N54 | 几何点云可导出：`cmd/nwdgeom` → PLY（1,261,016 顶点，35MB，格式头合法） | 观察（实现） | go-nwd `cmd/nwdgeom` |
+
 **样本校正实现状态**：容器层（M1/M2）在真实 25.7MB 文件上**全量通过**（27 流清单、偏移/尺寸、26 流 zlib inflate）；golden 测试见 `nwd/real_test.go`。
 
 ## 挂账（未知 → 队列）
@@ -122,5 +132,5 @@
 | U18 | 真实属性类型 payload 全表（PublishAttribute 92 已探部分；余 70/76/79/86/88/180 等按真实流校正） | P0 | M3/M5 收口 | 开（样本已解锁） |
 | U19 | Partition 流完整对象图（attrCount>0 的属性序列与子节点/变换） | P0 | M3 收口 | 开 |
 | U20 | GeometryCompress 几何块容器（Blowfish 8B，块表校验）与 Geometry 流真实内容 | P0 | M4 收口 | 🔶 Geometry 流顶点已解（N47/N48）；索引量化 → U21 |
-| U21 | 几何**索引**集量化编码（TriangleSet/LineSet/PointSet 的 index 数组） | P0 | M4 收口 | 开 |
+| U21 | 几何**索引**集：结构已定（N51：`i32 count + count×u16` 或 `readIndexTable` 表压缩）；本样本走表压缩，`readIndexTable` 语义待定 | P0 | M4 收口 | 🔶 结构定案（N50/N51） |
 | U22 | GeometryCompress 流实为 40B（本样本）之语义（是否空/占位） | P2 | M4 | 开 |
