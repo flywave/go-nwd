@@ -207,6 +207,16 @@ func (f *File) ScanStreamNames(i int, limit int) ([]NameRecord, error) {
 	return ScanNames(data, limit), nil
 }
 
+// DecodeGeometryVertices extracts the real vertex geometry from the
+// Geometry logical stream (M4 real-file path, findings N47/N48).
+func (f *File) DecodeGeometryVertices(i int, limit int) ([]VertexBlock, error) {
+	data, err := f.c.StreamData(i)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeGeometryVertices(data, limit)
+}
+
 // OpenFile reads path and returns its metadata.
 func OpenFile(path string) (*Metadata, error) {
 	buf, err := os.ReadFile(path)

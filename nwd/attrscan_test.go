@@ -6,7 +6,7 @@ import "testing"
 func TestScanNamesSynthetic(t *testing.T) {
 	w := NewObjectWriter()
 	w.Name("Location", "LcRevitPropertyLocation") // slot 0
-	w.Name("Latitude", "revit_Latitude")         // slot 1
+	w.Name("Latitude", "revit_Latitude")          // slot 1
 	w.End()
 	names := ScanNames(w.Bytes(), 10)
 	if len(names) != 2 {

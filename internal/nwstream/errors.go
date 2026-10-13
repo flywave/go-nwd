@@ -14,4 +14,5 @@ var (
 
 	// ErrFooterMismatch means the 52-byte footer signature does not equal
 	// the file header (Load@0xbd386f error 4).
-	ErrFooterMismatch = errors.New("nwstream: footer signature mismatch"))
+	ErrFooterMismatch = errors.New("nwstream: footer signature mismatch")
+)

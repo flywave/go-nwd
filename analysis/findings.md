@@ -88,6 +88,14 @@
 | **N45** | 真实属性键例（PartitionProps）：`Location/LcRevitPropertyLocation`、`Latitude/revit_Latitude`、`Longitude`、`Elevation`、`Timezone`、`ProjectLocation`、`Identity/LcOaSceneIdentity`、`Element ID/LcRevitId`、`Category`、`lcldrevit_parameter_Center Radius`… ⇒ 客户端 CDA 属性面可直接枚举 | 观察 | 样本；`File.ScanStreamNames` |
 | N46 | 真实流分类：`Partition`=根节点（仅 5 信封：PartitionNode/Name/PublishAttr/DistantLight×2）；`PartitionProps`=PropertyAttribute 对象流；`SpatialHierarchy`=紧凑整数对索引（非信封）；`LogicalHierarchy`=整数列表；`Fragments`=计数 49766 + 记录 | 观察 | 样本各流头 |
 
+## C8 轮（2026-10-13，U20 几何 — 真实网格顶点）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N47** | **Geometry 流 = 64KB zlib 分块串联**：TOC `prefix=4` 起始 4 字节 `00 00 01 00`=0x10000=分块解压尺寸；其后 595 个连续 zlib 成员，解压共 **38,958,248 字节**（单 zlib reader 只解首块，须分块解码） | 观察 | 样本 Geometry 流；`InflateChunks` |
+| **N48** | **几何块结构**（解压后对象信封，每块自 marker=100 起）：`Element(94 TriangleSetElem / 95 LineSetElem / 96 PointSetElem)` → `VertexSet(60)` = `[i32 vertexCount][i32 floatCount=vertexCount*3][f32 x,y,z ×]*`（8 字节对齐）→ `NormalSetShort(100)`/`ColorSet(58)`。实测 **14,331 块 / 1,261,016 顶点**（真实模型点云） | 观察 | 样本 Geometry；`DecodeGeometryVertices` |
+| N49 | 三角形/线/点**索引**为量化集（NormalSetShort 计数带符号位 0xfffffd51、位打包），未解码 → U21；当前提取顶点坐标 | 观察（部分） | 样本块尾 |
+
 **样本校正实现状态**：容器层（M1/M2）在真实 25.7MB 文件上**全量通过**（27 流清单、偏移/尺寸、26 流 zlib inflate）；golden 测试见 `nwd/real_test.go`。
 
 ## 挂账（未知 → 队列）
@@ -113,4 +121,6 @@
 | U17 | ObjMatrix(17) 元素数（12/16）与排列 | P2 | M6 收口 | 开 |
 | U18 | 真实属性类型 payload 全表（PublishAttribute 92 已探部分；余 70/76/79/86/88/180 等按真实流校正） | P0 | M3/M5 收口 | 开（样本已解锁） |
 | U19 | Partition 流完整对象图（attrCount>0 的属性序列与子节点/变换） | P0 | M3 收口 | 开 |
-| U20 | GeometryCompress 几何块容器（Blowfish 8B，块表校验）与 Geometry 流真实内容 | P0 | M4 收口 | 开 |
+| U20 | GeometryCompress 几何块容器（Blowfish 8B，块表校验）与 Geometry 流真实内容 | P0 | M4 收口 | 🔶 Geometry 流顶点已解（N47/N48）；索引量化 → U21 |
+| U21 | 几何**索引**集量化编码（TriangleSet/LineSet/PointSet 的 index 数组） | P0 | M4 收口 | 开 |
+| U22 | GeometryCompress 流实为 40B（本样本）之语义（是否空/占位） | P2 | M4 | 开 |

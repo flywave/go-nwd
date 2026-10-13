@@ -15,12 +15,12 @@ import (
 // builder: Offset/Size are computed from the layout, and Middle is placed at
 // Offset+Prefix with optional zlib compression when Compressed is set.
 type SynthStream struct {
-	Name        string
-	Bitfield    uint32 // low byte: compressed flag
-	Prefix      []byte // leading raw chunk (copied at Offset)
-	Middle      []byte // payload placed at Offset+len(Prefix)
-	Compressed  bool   // zlib-compress Middle and set bitfield low byte
-	Suffix      []byte // trailing raw bytes after Middle
+	Name       string
+	Bitfield   uint32 // low byte: compressed flag
+	Prefix     []byte // leading raw chunk (copied at Offset)
+	Middle     []byte // payload placed at Offset+len(Prefix)
+	Compressed bool   // zlib-compress Middle and set bitfield low byte
+	Suffix     []byte // trailing raw bytes after Middle
 }
 
 // BuildSyntheticV8 assembles a complete v8 image from logical streams.

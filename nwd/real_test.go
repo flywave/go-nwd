@@ -165,3 +165,33 @@ func TestRealPropertyNames(t *testing.T) {
 		}
 	}
 }
+
+func TestRealGeometryVertices(t *testing.T) {
+	f := openReal(t)
+	gi := f.StreamByName("LcOpNwdGeometry")
+	if gi < 0 {
+		t.Fatal("Geometry stream not found")
+	}
+	blocks, err := f.DecodeGeometryVertices(gi, 20000)
+	if err != nil {
+		t.Fatalf("DecodeGeometryVertices: %v", err)
+	}
+	if len(blocks) < 1000 {
+		t.Fatalf("blocks=%d want >=1000", len(blocks))
+	}
+	total := 0
+	for _, b := range blocks {
+		total += b.VertexCount
+	}
+	if total < 100000 {
+		t.Errorf("total vertices=%d want >=100000", total)
+	}
+	// First block is a triangle element with 687 vertices.
+	b0 := blocks[0]
+	if b0.ElementType != 94 || b0.VertexCount != 687 {
+		t.Errorf("block0 elem/vc=%d/%d want 94/687", b0.ElementType, b0.VertexCount)
+	}
+	if len(b0.Vertices) != 687 {
+		t.Errorf("block0 vertices=%d", len(b0.Vertices))
+	}
+}

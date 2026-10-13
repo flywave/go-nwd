@@ -223,14 +223,16 @@ func zlibMagic(b []byte) bool {
 
 // StreamData returns the logical stream bytes: zlib-decompressed when the
 // region begins with a zlib header, raw otherwise (encrypted geometry
-// containers keep their raw bytes for the geometry layer).
+// containers keep their raw bytes for the geometry layer). Large streams
+// are stored as a sequence of concatenated zlib chunks (64 KiB each); all
+// chunks are inflated (findings N47).
 func (c *Container) StreamData(i int) ([]byte, error) {
 	raw, err := c.StreamRegion(i)
 	if err != nil {
 		return nil, err
 	}
 	if zlibMagic(raw) {
-		return Inflate(raw)
+		return InflateChunks(raw)
 	}
 	return raw, nil
 }
@@ -287,7 +289,7 @@ func isSignatureWord(s string) bool {
 
 func isSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
 
-// Inflate decompresses a zlib blob (oda_z_inflate is standard zlib,
+// Inflate decompresses a single zlib blob (oda_z_inflate is standard zlib,
 // findings N6).
 func Inflate(comp []byte) ([]byte, error) {
 	zr, err := zlib.NewReader(bytes.NewReader(comp))
@@ -296,6 +298,33 @@ func Inflate(comp []byte) ([]byte, error) {
 	}
 	defer zr.Close()
 	return io.ReadAll(zr)
+}
+
+// InflateChunks decompresses a byte range that consists of one or more
+// concatenated zlib streams (findings N47): the Geometry stream stores its
+// payload as 64 KiB zlib chunks. bytes.Reader implements io.ByteReader, so
+// each zlib reader stops exactly at its stream end without over-reading,
+// leaving the next chunk intact.
+func InflateChunks(comp []byte) ([]byte, error) {
+	var out []byte
+	r := bytes.NewReader(comp)
+	for {
+		consumed := len(comp) - r.Len()
+		if consumed+2 > len(comp) || !zlibMagic(comp[consumed:]) {
+			break
+		}
+		zr, err := zlib.NewReader(r)
+		if err != nil {
+			return out, err
+		}
+		chunk, err := io.ReadAll(zr)
+		zr.Close()
+		if err != nil {
+			return out, err
+		}
+		out = append(out, chunk...)
+	}
+	return out, nil
 }
 
 func inflateAll(comp []byte) ([]byte, error) { return Inflate(comp) }

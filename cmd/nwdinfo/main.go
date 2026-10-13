@@ -34,6 +34,7 @@ func main() {
 		Schemas       []nwd.Schema       `json:"schemas,omitempty"`
 		Scene         *nwd.Scene         `json:"scene,omitempty"`
 		PropertyNames []nwd.NameRecord   `json:"property_names,omitempty"`
+		Geometry      *geomSummary       `json:"geometry,omitempty"`
 	}{Metadata: f.Metadata}
 
 	if idx := f.StreamByName("LcOpNwdPartition"); idx >= 0 {
@@ -82,10 +83,39 @@ func main() {
 		}
 	}
 
+	// Extract real geometry vertices from the Geometry stream (M4 real file).
+	if idx := f.StreamByName("LcOpNwdGeometry"); idx >= 0 {
+		if blocks, err := f.DecodeGeometryVertices(idx, 0); err == nil {
+			g := &geomSummary{Blocks: len(blocks)}
+			for _, b := range blocks {
+				g.Vertices += b.VertexCount
+			}
+			if len(blocks) > 0 {
+				b0 := blocks[0]
+				g.SampleElement = b0.ElementType
+				g.SampleVertices = b0.VertexCount
+				if len(b0.Vertices) > 0 {
+					g.FirstVertex = b0.Vertices[0][:]
+				}
+			}
+			out.Geometry = g
+		} else {
+			fmt.Fprintln(os.Stderr, "note: geometry:", err)
+		}
+	}
+
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(out); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+type geomSummary struct {
+	Blocks         int       `json:"blocks"`
+	Vertices       int       `json:"vertices"`
+	SampleElement  int       `json:"sample_element_type"`
+	SampleVertices int       `json:"sample_vertex_count"`
+	FirstVertex    []float64 `json:"first_vertex,omitempty"`
 }
