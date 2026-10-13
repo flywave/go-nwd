@@ -41,11 +41,11 @@ func (t FieldType) String() string {
 
 // SchemaField is one CDA property field definition.
 type SchemaField struct {
-	ID          string      `json:"id"`
-	DisplayName string      `json:"display_name,omitempty"`
-	Type        FieldType   `json:"type"`
-	TypeName    string      `json:"type_name"`
-	Concepts    []string    `json:"concepts,omitempty"`
+	ID          string    `json:"id"`
+	DisplayName string    `json:"display_name,omitempty"`
+	Type        FieldType `json:"type"`
+	TypeName    string    `json:"type_name"`
+	Concepts    []string  `json:"concepts,omitempty"`
 }
 
 // Schema is one CDA property schema.
@@ -157,10 +157,11 @@ func EncodeSchemas(schemas []Schema) []byte {
 
 func appendString(b []byte, s string) []byte {
 	b = appendI32(b, int32(len(s)))
+	b = append(b, s...)
 	if pad := (4 - len(b)%4) % 4; pad != 0 {
 		b = append(b, make([]byte, pad)...)
 	}
-	return append(b, s...)
+	return b
 }
 
 func appendStringList(b []byte, list []string) []byte {
@@ -182,6 +183,7 @@ const (
 	AttrBinary   AttributeKind = "binary"
 	AttrGUID     AttributeKind = "guid"
 	AttrUInt64   AttributeKind = "uint64"
+	AttrPublish  AttributeKind = "publish"
 )
 
 // attrKindByType maps NwObjectType IDs to attribute kinds (findings N28).
@@ -197,17 +199,23 @@ var attrKindByType = map[int]AttributeKind{
 
 // Attribute is a decoded attribute object payload.
 type Attribute struct {
-	Kind        AttributeKind
-	TypeID      int
-	UserName    string
-	ClassName   string
-	AttrFlags   uint32
-	Text        string
-	Number      uint32
-	U64         uint64
-	GUID        []byte // 16 bytes
-	Binary      []byte
-	Nested      []*Object
+	Kind      AttributeKind
+	TypeID    int
+	UserName  string
+	ClassName string
+	AttrFlags uint32
+	Text      string
+	Number    uint32
+	U64       uint64
+	GUID      []byte // 16 bytes
+	Binary    []byte
+	Nested    []*Object
+
+	// PublishAttribute (type 92) fields, best-effort (U18).
+	Title, Subject, Author, Publisher           string
+	Copyright, PublishedFor, Comments, Keywords string
+	Password                                    string
+	ExplicitName                                string
 }
 
 // decodeAttribute reads the shared attribute prefix (ModelBase + u32

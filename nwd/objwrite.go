@@ -25,13 +25,14 @@ func (w *ObjectWriter) u32(v uint32) {
 
 func (w *ObjectWriter) i32(v int32) { w.u32(uint32(v)) }
 
-// String writes the readString<align0> form: i32 len, align4, UTF-8.
+// String writes the readString<align0> form: i32 len, UTF-8 bytes, then
+// pad to a 4-byte boundary (findings N37).
 func (w *ObjectWriter) String(s string) {
 	w.i32(int32(len(s)))
+	w.buf = append(w.buf, s...)
 	if pad := (4 - len(w.buf)%4) % 4; pad != 0 {
 		w.buf = append(w.buf, make([]byte, pad)...)
 	}
-	w.buf = append(w.buf, s...)
 }
 
 // BeginNew writes a new-object envelope header for the next vector slot.

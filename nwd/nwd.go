@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/flywave/go-nwd/internal/nwstream"
 )
@@ -144,9 +145,11 @@ func (f *File) StreamData(i int) ([]byte, error) {
 }
 
 // StreamByName returns the index of the named logical stream, or -1.
+// Names may carry a directory prefix (e.g. "cache\\LcOpNwdPartition"); a
+// bare name matches either the exact stored name or a "\\"-suffixed tail.
 func (f *File) StreamByName(name string) int {
 	for i, s := range f.Metadata.Streams {
-		if s.Name == name {
+		if s.Name == name || strings.HasSuffix(s.Name, "\\"+name) || strings.HasSuffix(s.Name, "/"+name) {
 			return i
 		}
 	}

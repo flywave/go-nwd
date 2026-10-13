@@ -71,8 +71,10 @@ func (r *byteReader) align(a int) {
 	}
 }
 
-// readString decodes NwStreamCommon::readString<align0> (findings N21):
-// i32 byteLen, align 4, UTF-8 bytes.
+// readString decodes NwStreamCommon::readString<align0> (findings N21/N37):
+// i32 byteLen, byteLen UTF-8 bytes, then pad to a 4-byte boundary. Verified
+// against a real NWD: the padding sits after the bytes (e.g. a 39-byte name
+// consumed at offset 16 ends at 55 and is padded to 56).
 func (r *byteReader) readString() (string, error) {
 	n, err := r.i32()
 	if err != nil {
@@ -81,11 +83,11 @@ func (r *byteReader) readString() (string, error) {
 	if n < 0 {
 		return "", fmt.Errorf("nwd: negative string length %d", n)
 	}
-	r.align(4)
 	b, err := r.raw(int(n))
 	if err != nil {
 		return "", err
 	}
+	r.align(4)
 	return string(b), nil
 }
 

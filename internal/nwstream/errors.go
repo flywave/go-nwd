@@ -14,9 +14,4 @@ var (
 
 	// ErrFooterMismatch means the 52-byte footer signature does not equal
 	// the file header (Load@0xbd386f error 4).
-	ErrFooterMismatch = errors.New("nwstream: footer signature mismatch")
-
-	// ErrTOCChecksum means the Blowfish-encrypted Adler-32 trailer does not
-	// match the rolling TOC checksum (Load@0xbd3ef3 error 6).
-	ErrTOCChecksum = errors.New("nwstream: toc checksum mismatch")
-)
+	ErrFooterMismatch = errors.New("nwstream: footer signature mismatch"))

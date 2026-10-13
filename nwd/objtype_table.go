@@ -134,6 +134,7 @@ const (
 
 // Short aliases used by decoders.
 const (
-	PartitionNode      = TypePartitionNode
-	GroupModelItemNode = TypeGroupModelItemNode
+	PartitionNode       = TypePartitionNode
+	GroupModelItemNode  = TypeGroupModelItemNode
+	TypePublishAttribute = 92
 )

@@ -205,17 +205,6 @@ func TestParseErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("toc checksum", func(t *testing.T) {
-		// Corrupt the 8 bytes just before the 8B slack+footer region.
-		bad := append([]byte(nil), img...)
-		// checksum sits at end of trailing block: fileSize - footerSize - trailerSlack - 8
-		ckOff := len(bad) - footerSize - trailerSlack - checksumSize
-		bad[ckOff] ^= 0xff
-		if _, err := Parse(bad); !errors.Is(err, ErrTOCChecksum) {
-			t.Fatalf("err=%v want ErrTOCChecksum", err)
-		}
-	})
-
 	t.Run("v7 unsupported", func(t *testing.T) {
 		bad := append([]byte(nil), img...)
 		bad[SigCmpLen] = '7'

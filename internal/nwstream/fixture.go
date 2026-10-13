@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
-	"hash/adler32"
 )
 
 // BuildSyntheticV8 assembles a minimal in-memory container v8 image.
@@ -68,18 +67,14 @@ func BuildSyntheticV8(streams []SynthStream, payloadGap []byte) []byte {
 	// Optional filler between streams and trailing block.
 	body.Write(payloadGap)
 
-	// TOC body (findings N14/N15).
+	// TOC body (findings N14/N15/N36): no stored name Adler-32.
 	var toc bytes.Buffer
 	_ = binary.Write(&toc, binary.LittleEndian, uint32(0xFFFFFFFF)) // -1
 	_ = binary.Write(&toc, binary.LittleEndian, uint32(len(placedStreams)))
-	acc := uint32(1)
 	for _, s := range placedStreams {
 		name := []byte(s.Name)
 		_ = binary.Write(&toc, binary.LittleEndian, uint32(len(name)))
 		toc.Write(name)
-		acc = adler32Update(acc, name)
-		nameAdler := adler32.Checksum(name)
-		_ = binary.Write(&toc, binary.LittleEndian, nameAdler)
 
 		bf := s.Bitfield
 		if s.Compressed {
@@ -88,26 +83,20 @@ func BuildSyntheticV8(streams []SynthStream, payloadGap []byte) []byte {
 		var bfBuf [4]byte
 		binary.LittleEndian.PutUint32(bfBuf[:], bf)
 		toc.Write(bfBuf[:])
-		acc = adler32Update(acc, bfBuf[:])
 
-		// align to 8 relative to TOC start.
 		if pad := (-toc.Len()) & 7; pad != 0 {
 			toc.Write(make([]byte, pad))
 		}
 		var f8 [8]byte
 		binary.LittleEndian.PutUint64(f8[:], uint64(s.Offset))
 		toc.Write(f8[:])
-		acc = adler32Update(acc, f8[:])
 		binary.LittleEndian.PutUint64(f8[:], uint64(s.Size))
 		toc.Write(f8[:])
-		acc = adler32Update(acc, f8[:])
 		var f4 [4]byte
 		binary.LittleEndian.PutUint32(f4[:], uint32(int32(len(s.Prefix))))
 		toc.Write(f4[:])
-		acc = adler32Update(acc, f4[:])
 		binary.LittleEndian.PutUint32(f4[:], uint32(int32(len(s.Suffix))))
 		toc.Write(f4[:])
-		acc = adler32Update(acc, f4[:])
 	}
 
 	var zbuf bytes.Buffer
@@ -121,15 +110,21 @@ func BuildSyntheticV8(streams []SynthStream, payloadGap []byte) []byte {
 		line = append(line, make([]byte, pad)...)
 	}
 	trailer := append(line, zbuf.Bytes()...)
-	trailer = append(trailer, encryptTOCChecksum(acc)...)
 
-	// Assemble: header | stream body | trailer | 8B slack | footer.
+	// Assemble (corrected real-file layout): header | stream body | trailer
+	// | 8B gap | Int64 N (trailer offset) | 52B footer signature copy.
+	var head bytes.Buffer
+	head.Write(header[:])
+	head.Write(body.Bytes())
+	trailerOffset := int64(head.Len())
+
 	var out bytes.Buffer
-	out.Write(header[:])
-	out.Write(body.Bytes())
+	out.Write(head.Bytes())
 	out.Write(trailer)
-	out.Write(make([]byte, trailerSlack)) // findings U3
-	_ = binary.Write(&out, binary.LittleEndian, uint64(len(trailer)))
+	out.Write(make([]byte, trailerSlack))
+	var nbuf [8]byte
+	binary.LittleEndian.PutUint64(nbuf[:], uint64(trailerOffset))
+	out.Write(nbuf[:])
 	out.Write(header[:]) // footer signature copy
 	return out.Bytes()
 }

@@ -18,17 +18,17 @@ const (
 	footerSize = 0x3c
 
 	// trailerSlack is the 8-byte gap between the trailing block and the
-	// footer anchor (0x44 - 0x3c = 8); semantics unknown (findings U3).
+	// footer anchor (findings N5, semantics unknown U3).
 	trailerSlack = 8
+
+	// trailerTrail is the total tail after the trailing config block:
+	// 8-byte gap + 8-byte offset Int64 + 52-byte footer signature (0x44).
+	trailerTrail = 0x44
 
 	// alignTo is the byte alignment applied after the trailing-block
 	// signature line before the zlib stream (readStreamConfig@0xbd32b5:
 	// pad = (-consumed) & 7).
 	alignTo = 8
-
-	// checksumSize is the Blowfish-encrypted Adler-32 trailer that follows
-	// the zlib TOC inside the trailing block (Load@0xbd3e9f, findings N16).
-	checksumSize = 8
 )
 
 // StreamEntry is one logical stream record from the inflated TOC.
@@ -41,18 +41,20 @@ const (
 //	Suffix  — trailing bytes excluded from the tail
 //	Bitfield low byte != 0 — region is a single compressed blob
 type StreamEntry struct {
-	Name        string
-	NameAdler32 uint32
-	Bitfield    uint32
-	Offset      int64
-	Size        int64
-	Prefix      int32
-	Suffix      int32
+	Name     string
+	Bitfield uint32
+	Offset   int64
+	Size     int64
+	Prefix   int32
+	Suffix   int32
+
+	// RawZlib is set during Parse when the region begins with a zlib
+	// header (findings N36). It is authoritative over the bitfield.
+	RawZlib bool
 }
 
-// Compressed reports whether the stream region is a single compressed blob
-// (bitfield low byte != 0, parseStream@0xbd1147).
-func (e StreamEntry) Compressed() bool { return e.Bitfield&0xff != 0 }
+// Compressed reports whether the stream region is zlib-compressed.
+func (e StreamEntry) Compressed() bool { return e.RawZlib }
 
 // Container is the parsed v8 NWD container envelope.
 type Container struct {
@@ -98,23 +100,28 @@ func Parse(data []byte) (*Container, error) {
 
 	fileSize := int64(len(data))
 
-	// Footer: [fileSize-0x3c] Int64 N, then 52-byte header copy.
+	// Footer Int64 at fileSize-0x3c is the absolute OFFSET of the trailing
+	// configuration block (verified against a real NWD: it points at the
+	// navisworks-variant signature line). The 52-byte footer signature copy
+	// follows the Int64.
 	footerOff := fileSize - footerAnchor
 	n := int64le(data[footerOff : footerOff+8])
-	if n < checksumSize || n > fileSize {
-		return nil, fmt.Errorf("nwstream: bad trailing-block size %d", n)
+	if n < HeaderSize || n > fileSize-trailerTrail {
+		return nil, fmt.Errorf("nwstream: trailing-block offset %d out of range", n)
 	}
 	hdrCopy := data[footerOff+8 : footerOff+8+HeaderSize]
 	if !bytes.Equal(hdrCopy, data[:HeaderSize]) {
 		return nil, ErrFooterMismatch
 	}
 
-	// Trailing block starts at fileSize - N - 0x44 (= footerSize+trailerSlack).
-	p := fileSize - n - footerSize - trailerSlack
-	if p < HeaderSize {
-		return nil, fmt.Errorf("nwstream: trailing block overlaps header (P=%d)", p)
+	// Trailing config block spans [N, fileSize-0x44); after it come the
+	// 8-byte gap, the Int64 N and the 52-byte footer signature.
+	trailingEnd := fileSize - trailerTrail
+	if n >= trailingEnd {
+		return nil, fmt.Errorf("nwstream: empty trailing block (N=%d end=%d)", n, trailingEnd)
 	}
-	trailer := data[p : p+n]
+	trailer := data[n:trailingEnd]
+	p := n // main payload ends where the trailing block begins
 
 	// Parse the trailing-block signature line, then align to 8 bytes from
 	// the block start (readStreamConfig@0xbd32af..0xbd32ed).
@@ -123,42 +130,44 @@ func Parse(data []byte) (*Container, error) {
 		return nil, fmt.Errorf("nwstream: trailing signature: %w", err)
 	}
 
-	// Split trailing block into zlib TOC + 8-byte Blowfish checksum.
+	// The zlib TOC starts after the signature line and runs to the end of
+	// the trailing block (verified against a real NWD: the deflate stream
+	// fills the remainder exactly; there is no trailing checksum). Go's
+	// zlib reader stops at the stream's own end, ignoring any trailing bytes.
 	body := trailer[zlibOff:]
-	if len(body) < checksumSize {
-		return nil, fmt.Errorf("nwstream: trailing body too short for checksum")
+	if len(body) < 4 {
+		return nil, fmt.Errorf("nwstream: trailing body too short")
 	}
-	compTOC := body[:len(body)-checksumSize]
-	ckRaw := body[len(body)-checksumSize:]
 
-	toc, err := inflateAll(compTOC)
+	toc, err := inflateAll(body)
 	if err != nil {
 		return nil, fmt.Errorf("nwstream: toc inflate: %w", err)
 	}
-	streams, acc, err := parseTOC(toc)
+	streams, err := parseTOC(toc)
 	if err != nil {
 		return nil, fmt.Errorf("nwstream: toc: %w", err)
 	}
-	if err := verifyTOCChecksum(ckRaw, acc); err != nil {
-		return nil, fmt.Errorf("nwstream: %w: %v", ErrTOCChecksum, err)
-	}
 
-	// Validate stream regions against the file (parseStream@0xbd12e0).
-	for i, s := range streams {
+	// Validate stream regions against the main payload [HeaderSize, N).
+	for i := range streams {
+		s := &streams[i]
 		if s.Offset < HeaderSize || s.Size < 0 || s.Offset+s.Size > p {
-			return nil, fmt.Errorf("nwstream: stream[%d] %q region [%d,%d) outside main payload (P=%d)",
+			return nil, fmt.Errorf("nwstream: stream[%d] %q region [%d,%d) outside main payload (end=%d)",
 				i, s.Name, s.Offset, s.Offset+s.Size, p)
 		}
 		if s.Prefix < 0 || s.Suffix < 0 || int64(s.Prefix)+int64(s.Suffix) > s.Size {
 			return nil, fmt.Errorf("nwstream: stream[%d] %q prefix/suffix %d/%d invalid for size %d",
 				i, s.Name, s.Prefix, s.Suffix, s.Size)
 		}
+		start := s.Offset + int64(s.Prefix)
+		end := s.Offset + s.Size - int64(s.Suffix)
+		s.RawZlib = end > start && zlibMagic(data[start:end])
 	}
 
 	c := &Container{
 		Config:            cfg,
 		FileSize:          fileSize,
-		TrailingBlockSize: n,
+		TrailingBlockSize: trailingEnd - n,
 		TrailingOffset:    p,
 		MainPayload:       data[HeaderSize:p],
 		data:              data,
@@ -167,10 +176,10 @@ func Parse(data []byte) (*Container, error) {
 	return c, nil
 }
 
-// StreamRaw returns the raw region bytes for stream i, after applying the
-// prefix/suffix split rules (parseStream@0xbd1326): the returned slice is
-// the "middle" payload. Compressed streams still need Inflate.
-func (c *Container) StreamRaw(i int) ([]byte, error) {
+// StreamRegion returns the raw region bytes for stream i after applying
+// the prefix/suffix split (parseStream@0xbd1326): [offset+prefix,
+// offset+size-suffix).
+func (c *Container) StreamRegion(i int) ([]byte, error) {
 	if i < 0 || i >= len(c.Streams) {
 		return nil, fmt.Errorf("nwstream: stream index %d out of range", i)
 	}
@@ -198,17 +207,32 @@ func (c *Container) StreamPrefix(i int) ([]byte, error) {
 	return c.data[start:end], nil
 }
 
-// StreamData returns the logical stream bytes: raw middle payload for
-// uncompressed streams, zlib-decompressed payload for compressed ones.
+// zlibMagic reports whether b begins with a plausible zlib header (CMF
+// 0x78, the common deflate window). Verified against a real NWD: every
+// non-encrypted stream region starts with 0x78 0x9c (findings N36).
+func zlibMagic(b []byte) bool {
+	if len(b) < 2 {
+		return false
+	}
+	if b[0] != 0x78 {
+		return false
+	}
+	// CMF/FLG checksum must be a multiple of 31 and FCHECK valid.
+	return (uint16(b[0])<<8|uint16(b[1]))%31 == 0
+}
+
+// StreamData returns the logical stream bytes: zlib-decompressed when the
+// region begins with a zlib header, raw otherwise (encrypted geometry
+// containers keep their raw bytes for the geometry layer).
 func (c *Container) StreamData(i int) ([]byte, error) {
-	raw, err := c.StreamRaw(i)
+	raw, err := c.StreamRegion(i)
 	if err != nil {
 		return nil, err
 	}
-	if !c.Streams[i].Compressed() {
-		return raw, nil
+	if zlibMagic(raw) {
+		return Inflate(raw)
 	}
-	return Inflate(raw)
+	return raw, nil
 }
 
 // skipSignatureLine consumes whitespace-separated signature words from the

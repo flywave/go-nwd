@@ -68,6 +68,23 @@
 | N33 | **场景装配**：`BuildScene(tree,mesh)` 扁平实例化（Name/Path/Transform/Mesh）；节点名 userName→displayName→name 回退 | 观察（设计） | go-nwd `nwd/scene.go` |
 | N34 | NWD 的 Blowfish 封存（TOC 校验 M2 + 几何块 M4）由 `internal/blowfish` 自包含实现（标准算法 + pi 初值表），经标准测试向量与既有端到端往返验证字节兼容；不引入 `x/crypto/blowfish`（已弃用告警） | 观察（实现决策） | `internal/blowfish`；N6/N16/N23 |
 
+## C7 轮（2026-10-13，真实样本字节级校正 — BCCCH BIM 25.7MB）
+
+> 样本：`nwd/testdata/BCCCH_BIM Coordination Model_251024.nwd`（Navisworks 2024 发布）。
+> 本节修正 M1/M2 的若干静态推断，以真实文件为准。
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N35（修正 N5）** | 页脚 Int64（fileSize−0x3c）是**尾块绝对偏移 N**（非尺寸）；尾块 = `[N, fileSize−0x44)`；其后 `[−0x44,−0x3c)` 8B 间隙、`[−0x3c,−0x34)` Int64 N、`[−0x34,EOF)` 52B 头副本。实测 N=0x187c383 | 观察 | 样本偏移；Load 中 seek 目标实为 `Splitter+0x20`（=N） |
+| **N36（修正 N7/N16）** | TOC 每流记录 = `[u32 nameLen][name][u32 bitfield][align8][i64 offset][i64 size][i32 prefix][i32 suffix]`——**无存档 name-adler**；**无尾部 Blowfish 校验**（zlib 流填满尾块，python zlib 全消费 581B）；流名可带 `cache\` 前缀（27 流中 24 条）；`offset/size` 单调衔接，语义确认 | 观察 | 样本尾块 inflate；`analysis/07-real-sample.md` |
+| **N37（修正 N21）** | `readString<0>` = `i32 字节长` + UTF-8 字节 + **补齐到 4（填充在数据之后）**；实测 39 字节名在偏移16→结束55→补到56 | 观察 | 样本 Partition 流内偏移 |
+| **N38（部分解 U10）** | 尾块签名行实为 **navisworks 变体**：`#LcUStream-V1.1 binary double release utf8 navisworks:451 lizlib\n`；⇒ **NwFormatVersionEx = 451**（对应共享对象门控 0x1C3）。头/页脚签名无版本数字（`...lichunk-` + 3 位数字 + `\n`，此处 `008`） | 观察 | 样本 0x187c383 与 0x0/页脚 |
+| **N39** | 主负载各流：实测 **26/27 为 zlib**（魔数 `78 9c`），仅 `GeometryCompress` 非 zlib（Blowfish 几何块容器，0x03000000 位域）。bitfield 非简单压缩位（取值 0x1/0x100/0x10000/0x1000000/0x3000000，字节对齐标记）；**判定以魔数为准** | 观察 | 样本各流首字节 |
+| **N40** | Partition 流 inflate 后 = 对象信封：`marker=100`、`typeID=32`(PartitionNode)、`u32 modelType`、ModelBase[`userName`="BCCCH_BIM …nwd"、`→Name(52)` "LcOpPartition"]、`u32 flags`、`u32 guid`、`u32 attrCount`、attrs… ⇒ **M3 信封与 ModelBase/ModelItem 结构在真实文件上得到验证** | 观察 | 样本 Partition 流（744B） |
+| N41 | 真实 Partition 根的 attrCount=1，属性为 **PublishAttribute(92)**（payload=flags+6 字符串+2 时间+…）；其后续属性/子节点解码为下一步 | 观察（部分） | 样本；E2 PublishAttributeReader@0xc58ffa |
+
+**样本校正实现状态**：容器层（M1/M2）在真实 25.7MB 文件上**全量通过**（27 流清单、偏移/尺寸、26 流 zlib inflate）；golden 测试见 `nwd/real_test.go`。
+
 ## 挂账（未知 → 队列）
 
 | ID | 问题 | 优先级 | 阻塞 | 状态 |
@@ -89,3 +106,6 @@
 | U15 | CommonSchemas 流顶层计数/字段序与真实流名 | P0 | M5 收口 | 开（夹具对齐布局） |
 | U16 | PropertyAttribute 嵌套值编码 + PartitionProps 块↔节点映射 | P1 | M5 收口 | 开 |
 | U17 | ObjMatrix(17) 元素数（12/16）与排列 | P2 | M6 收口 | 开 |
+| U18 | 真实属性类型 payload 全表（PublishAttribute 92 已探部分；余 70/76/79/86/88/180 等按真实流校正） | P0 | M3/M5 收口 | 开（样本已解锁） |
+| U19 | Partition 流完整对象图（attrCount>0 的属性序列与子节点/变换） | P0 | M3 收口 | 开 |
+| U20 | GeometryCompress 几何块容器（Blowfish 8B，块表校验）与 Geometry 流真实内容 | P0 | M4 收口 | 开 |

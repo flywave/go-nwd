@@ -1,0 +1,115 @@
+package nwd
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// Real NWD golden test. The 25 MB sample lives in nwd/testdata; the test is
+// skipped when it is absent so the suite still runs without the sample.
+const realSample = "testdata/BCCCH_BIM Coordination Model_251024.nwd"
+
+func openReal(t *testing.T) *File {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(".", realSample)); err != nil {
+		t.Skipf("real sample not present: %v", err)
+	}
+	buf, err := os.ReadFile(realSample)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := Open(buf)
+	if err != nil {
+		t.Fatalf("Open real sample: %v", err)
+	}
+	return f
+}
+
+func TestRealContainerInventory(t *testing.T) {
+	f := openReal(t)
+	md := f.Metadata
+
+	if md.Kind != KindBinaryLichunk {
+		t.Errorf("kind=%v want nwd-binary-lichunk", md.Kind)
+	}
+	if md.Version != 8 {
+		t.Errorf("container version=%d want 8", md.Version)
+	}
+	if md.FileSize != 25675348 {
+		t.Errorf("file size=%d want 25675348", md.FileSize)
+	}
+	if len(md.Streams) != 27 {
+		t.Fatalf("streams=%d want 27", len(md.Streams))
+	}
+
+	// Spot-check streams decoded from the real trailing TOC.
+	want := map[string][2]int64{ // name -> {offset, size}
+		"cache\\LcOpNwdGeometryCompress": {52, 40},
+		"cache\\LcOpNwdGeometry":         {92, 21670465},
+		"cache\\LcOpNwdPartition":        {21670568, 346},
+		"LcOpCommonSchemas":              {25674483, 11},
+		"LcOpXRefTable":                  {25674494, 133},
+	}
+	byName := map[string]StreamInfo{}
+	for _, s := range md.Streams {
+		byName[s.Name] = s
+	}
+	for name, osz := range want {
+		s, ok := byName[name]
+		if !ok {
+			t.Errorf("stream %q missing", name)
+			continue
+		}
+		if s.Offset != osz[0] || s.Size != osz[1] {
+			t.Errorf("stream %q offset/size=%d/%d want %d/%d", name, s.Offset, s.Size, osz[0], osz[1])
+		}
+	}
+
+	// All streams except the encrypted GeometryCompress container are zlib.
+	compressed := 0
+	for _, s := range md.Streams {
+		if s.Compressed {
+			compressed++
+		}
+	}
+	if compressed != 26 {
+		t.Errorf("compressed streams=%d want 26", compressed)
+	}
+	if g := byName["cache\\LcOpNwdGeometryCompress"]; g.Compressed {
+		t.Error("GeometryCompress should not be zlib")
+	}
+}
+
+func TestRealStreamInflate(t *testing.T) {
+	f := openReal(t)
+
+	// Every zlib stream must inflate without error.
+	for i, s := range f.Metadata.Streams {
+		if !s.Compressed {
+			continue
+		}
+		data, err := f.StreamData(i)
+		if err != nil {
+			t.Errorf("stream %q (%d) inflate: %v", s.Name, i, err)
+			if len(s.Name) > 0 {
+				continue
+			}
+		}
+		_ = data
+	}
+
+	// The Partition stream inflates to a PartitionNode object envelope.
+	pi := f.StreamByName("LcOpNwdPartition")
+	if pi < 0 {
+		t.Fatal("partition stream not found")
+	}
+	data, err := f.StreamData(pi)
+	if err != nil {
+		t.Fatalf("partition inflate: %v", err)
+	}
+	// marker=100 (new object 0), typeID=32 (PartitionNode).
+	if len(data) < 8 || data[0] != 100 || data[4] != 32 {
+		t.Errorf("partition head=% x, want 64 00 00 00 20 00 00 00", data[:min(8, len(data))])
+	}
+}

@@ -26,6 +26,7 @@ NWD 格式的分析与实现**独立于 go-dgn / go-rvt**，同级仓库。
 | `analysis/04-geometry.md` | **Fragment/几何块容器/顶点索引集** | C4 ✅ 主体 |
 | `analysis/05-properties.md` | **Schema 定义 + 属性对象 + PartitionProps** | C5 ✅ 主体 |
 | `analysis/06-instances-scene.md` | **变换对象 + 版本门控阈值 + 场景装配** | C6 ✅ 主体 |
+| `analysis/07-real-sample.md` | **真实样本字节级校正（BCCCH 25.7MB）** | C7 ✅ 主体 |
 | `analysis/rea-extract-plan.md` | REA 提取清单（P0–P3） | 持续 |
 
 ## 实现路线

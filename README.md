@@ -8,9 +8,10 @@ v8), built from reverse-engineering the ODA BimNv `TNW_Db.tx` module.
 - **M1 ✅**: 签名识别、容器版本门控、v8 footer/尾块布局、TOC 解析、流清单
 - **M2 ✅**: TOC 字段语义定案（offset/size/prefix/suffix/压缩位）、
   Adler-32 滚动校验 + Blowfish 封印验证、每流 `StreamData`
-- **M3 ✅ 骨架**: 对象信封（nil/回指/新对象 marker≥100）、NwObjectType
-  110 条注册表、UTF-8 字符串 codec、Partition/Group 节点解码器、
-  `File.DecodeTree` + `nwdinfo` 树输出
+- **M1/M2 ✅ 真实样本验证**: 25.7MB BCCCH 协调模型全量解析
+  （27 流清单、偏移/尺寸、26 流 zlib inflate）；页脚 Int64=尾块偏移、
+  TOC 无 adler/无校验、zlib 魔数判定、名称 `cache\` 前缀等已按真实文件校正
+- **M3 ✅ 对象信封**: 在真实 Partition 流上验证（marker/typeID/ModelBase/ModelName/ModelItem）
 - **M4 ✅ 骨架**: GeometryCompress 块容器（Blowfish-8B 解密）、
   顶点集未压缩解码、Mesh 装配、`nwdinfo` mesh 输出
 - **M5 ✅ 骨架**: NwSchemaFieldType 枚举、CommonSchemas 流解码
