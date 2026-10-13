@@ -50,6 +50,14 @@
 | N25 | **Fragment（typeID 13）** = 11 flag 位 × 8 版本门控的可变记录；含 traversableScale(f64)/traversableTris(u32)/primitives(u8)/readObject(变换 14–17 或几何引用 93)/RunPath；精确字段序→U14 | 观察（部分） | E2 FragmentReader@0xc5cac6 |
 | N26 | 几何集族：ColorSet(58,readColors+u8 通道宽)、NormalSetFloat(59)/Short(100)、TexCoordSet(61,OdGePoint2d)、LineSet/PointSet/TriangleSet(81/80/62→Element 95/96/94)；TriangleSet 建 GeometryRef + addGeometry 注册 | 观察 | E2 各 Reader readElement |
 
+## C5 轮（2026-10-13，M5 属性/CDA）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| N27 | **NwSchemaFieldType**（E1 权威）：DOUBLE=0/GUID=1/INT32=2/BOOLEAN=3/STRING=4/STRUCT=20/VECTOR=21/UNKNOWN=0xFFFF；`readConcepts` = `i32 count + count×readString`；CommonSchemas parseStream=公共字段+`i32 schemaCount`+逐 schema；readSchemaField=id+[gate] display+concepts；readSchemaStructField=readEnum<FieldType>+readDouble 值 | 观察（E1 定案枚举；流布局夹具对齐 U15） | E1 `NwSchemaTypes.h`；E2 parseStream@0xcf8854、readConcepts@0xcf8a48、readSchemaField@0xcf8c38、readSchemaStructField@0xcf8fac |
+| N28 | **属性对象基类** = ModelBase（userName + Name） + `u32 attrFlags`；各类型 payload：66 UInt64Attribute=u64、76 TextAttribute=string、79 URLAttribute=string+u32、86 PropertyAttribute=string+u32+2×readObject+readData、88 BinaryAttribute=i32+bytes、180 GuidAttribute=GUID(16B) | 观察 | E2 OdNwAttributeReader::readElement、各子类 readElement |
+| N29 | **PartitionProps 流**：按分区块索引定位属性块（`TBlockParams::getAttr`+`resolveBlockForIndex`+tuple<u32,u32,u32>/accumulate），块内为属性对象信封（ObjectReader）；逻辑层次提供块映射（`getPartPropsBlocks`） | 观察 | E2 parseStream@0xce5ca8 |
+
 ## 挂账（未知 → 队列）
 
 | ID | 问题 | 优先级 | 阻塞 | 状态 |
@@ -68,3 +76,5 @@
 | U12 | 位打包量化几何（readIndexes/readBits/readIndexTable + 精度还原） | P0 | M4 收口 | 开（需真实样例） |
 | U13 | GeometryCompress 块计数/每块精确布局 + 块↔几何索引映射 | P1 | M4 收口 | 开 |
 | U14 | Fragment 11 flag 位 × 8 版本门控精确字段序 | P1 | M4/M5 联调 | 开 |
+| U15 | CommonSchemas 流顶层计数/字段序与真实流名 | P0 | M5 收口 | 开（夹具对齐布局） |
+| U16 | PropertyAttribute 嵌套值编码 + PartitionProps 块↔节点映射 | P1 | M5 收口 | 开 |

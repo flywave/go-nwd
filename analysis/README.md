@@ -24,6 +24,7 @@ NWD 格式的分析与实现**独立于 go-dgn / go-rvt**，同级仓库。
 | `analysis/02-compress-chunk.md` | **TOC 字段语义 + 主负载切分 + Adler/Blowfish 校验** | C2 ✅ 主体 |
 | `analysis/03-model-tree.md` | **对象信封 + 类型注册表 + 节点 Schema** | C3 ✅ 主体 |
 | `analysis/04-geometry.md` | **Fragment/几何块容器/顶点索引集** | C4 ✅ 主体 |
+| `analysis/05-properties.md` | **Schema 定义 + 属性对象 + PartitionProps** | C5 ✅ 主体 |
 | `analysis/rea-extract-plan.md` | REA 提取清单（P0–P3） | 持续 |
 
 ## 实现路线
@@ -45,7 +46,12 @@ NWD 格式的分析与实现**独立于 go-dgn / go-rvt**，同级仓库。
    顶点集未压缩解码（i32+f32×3）+ 索引表 + Mesh 装配；
    `File.DecodeGeometryBlocks` + `nwdinfo` mesh 输出；夹具端到端绿（立方体 8 顶点/12 三角）
    - 未竟：位打包量化几何（U12）；块↔几何映射（U13）；Fragment 精确位义（U14）；真实样例
-5. ⬜ **M5 属性/CDA**：CommonSchemas 字段树 + PartitionProps
+5. ✅ **M5 属性/CDA（骨架落地）**：NwSchemaFieldType 枚举（E1）+
+   CommonSchemas 流解码（Schema/Field/concepts）+ 属性对象解码
+   （ModelBase+attrFlags+按类型值：Text/URL/GUID/Binary/UInt64/Property）+
+   `File.DecodeSchemas` + `nwdinfo` schemas 输出；夹具端到端绿
+   - 未竟：CommonSchemas 真实流布局/流名（U15）；PropertyAttribute 嵌套
+     值与 PartitionProps 块映射（U16）；真实样例
 5. ⬜ **M5 属性/CDA**：CommonSchemas 字段树 + PartitionProps
 
 ## 包结构

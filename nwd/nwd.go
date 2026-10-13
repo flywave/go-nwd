@@ -173,6 +173,16 @@ func (f *File) DecodeGeometryBlocks(i int) ([]GeometryBlock, error) {
 	return DecodeGeometryBlocks(data)
 }
 
+// DecodeSchemas decodes stream i as the CommonSchemas CDA definitions
+// (M5, findings N27).
+func (f *File) DecodeSchemas(i int) ([]Schema, error) {
+	data, err := f.c.StreamData(i)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeSchemas(data)
+}
+
 // OpenFile reads path and returns its metadata.
 func OpenFile(path string) (*Metadata, error) {
 	buf, err := os.ReadFile(path)

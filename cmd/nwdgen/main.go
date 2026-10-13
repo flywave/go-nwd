@@ -41,6 +41,19 @@ func main() {
 		panic(err)
 	}
 
+	// CommonSchemas stream (M5): CDA property definitions.
+	schemaStream := nwd.EncodeSchemas([]nwd.Schema{{
+		Name:        "LcOaNode",
+		DisplayName: "Node",
+		Concepts:    []string{"Common"},
+		Fields: []nwd.SchemaField{
+			{ID: "Name", DisplayName: "Name", Type: nwd.FieldString, Concepts: []string{"Identity"}},
+			{ID: "Volume", DisplayName: "Volume", Type: nwd.FieldDouble},
+			{ID: "IfcGuid", DisplayName: "GUID", Type: nwd.FieldGUID},
+			{ID: "IsExternal", DisplayName: "Is External", Type: nwd.FieldBoolean},
+		},
+	}})
+
 	img := nwstream.BuildSyntheticV8([]nwstream.SynthStream{
 		{
 			Name:   "LcOpNwdPartition",
@@ -55,6 +68,11 @@ func main() {
 		{
 			Name:   "LcOpNwdGeometryCompress",
 			Middle: geomBlocks,
+		},
+		{
+			Name:       "LcOpNwdCommonSchemas",
+			Middle:     schemaStream,
+			Compressed: true,
 		},
 	}, nil)
 	if _, err := os.Stdout.Write(img); err != nil {

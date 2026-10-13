@@ -112,6 +112,9 @@ type Object struct {
 	ModelType *uint32
 	Usage     *int32
 
+	// Attribute payload (when TypeID is an attribute type, M5).
+	Attribute *Attribute
+
 	// Children for group nodes (read by parent-side loop in real readers;
 	// go-nwd collects explicit child objects attached during decode).
 	Children []*Object
@@ -173,6 +176,10 @@ func (o *ObjectReader) decodePayload(obj *Object) error {
 	case GroupModelItemNode, TypeGeometryModelItem:
 		return o.decodeGroupNode(obj)
 	default:
+		if _, ok := attrKindByType[obj.TypeID]; ok {
+			_, err := o.decodeAttribute(obj)
+			return err
+		}
 		return fmt.Errorf("%w: type %d (%s)", ErrUnsupportedType, obj.TypeID, obj.TypeName)
 	}
 }

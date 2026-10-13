@@ -28,8 +28,9 @@ func main() {
 	}
 	out := struct {
 		*nwd.Metadata
-		Tree *nwd.Tree `json:"tree,omitempty"`
-		Mesh *nwd.Mesh `json:"mesh,omitempty"`
+		Tree    *nwd.Tree    `json:"tree,omitempty"`
+		Mesh    *nwd.Mesh    `json:"mesh,omitempty"`
+		Schemas []nwd.Schema `json:"schemas,omitempty"`
 	}{Metadata: f.Metadata}
 
 	if idx := f.StreamByName("LcOpNwdPartition"); idx >= 0 {
@@ -48,6 +49,18 @@ func main() {
 			if m, err := nwd.BuildMesh(blocks[0].Data, blocks[1].Data); err == nil {
 				out.Mesh = m
 			}
+		}
+	}
+
+	// CommonSchemas: CDA property definitions (M5).
+	for _, name := range []string{"LcOpNwdCommonSchemas", "LcOaCommonSchemas"} {
+		if idx := f.StreamByName(name); idx >= 0 {
+			if schemas, err := f.DecodeSchemas(idx); err == nil {
+				out.Schemas = schemas
+			} else {
+				fmt.Fprintln(os.Stderr, "warning: schemas:", err)
+			}
+			break
 		}
 	}
 

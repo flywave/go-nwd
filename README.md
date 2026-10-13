@@ -13,8 +13,10 @@ v8), built from reverse-engineering the ODA BimNv `TNW_Db.tx` module.
   `File.DecodeTree` + `nwdinfo` 树输出
 - **M4 ✅ 骨架**: GeometryCompress 块容器（Blowfish-8B 解密）、
   顶点集未压缩解码、Mesh 装配、`nwdinfo` mesh 输出
-  —— 夹具端到端绿；位打包量化几何与 Fragment 精确位义待样本（U12/U14）
-- M5+: 属性/CDA —— 见 `analysis/README.md`
+- **M5 ✅ 骨架**: NwSchemaFieldType 枚举、CommonSchemas 流解码
+  （Schema/Field/concepts）、属性对象解码（Text/URL/GUID/Binary/
+  UInt64/Property）、`nwdinfo` schemas 输出
+  —— 夹具端到端绿；位打包量化几何、Fragment 精确位义、真实流布局待样本（U12/U15）
 
 ## Layout
 
