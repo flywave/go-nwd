@@ -141,7 +141,7 @@
 | U17 | ObjMatrix(17) 元素数（12/16）与排列 | P2 | M6 收口 | 开 |
 | U18 | 真实属性类型 payload 全表 | P0 | M3/M5 收口 | ✅ PublishAttribute 定案（N56）；余 70/76/79/86/88/180 同基类 |
 | U19 | 完整模型树（SpatialHierarchy 索引 → 节点层级） | P1 | M3 收口 | 🔶 结构观察（N62：[count,index] 记录引 Partition item）；完整文法待 |
-| U20 | GeometryCompress 设置流（GenSubkeys2 非标准密钥编排） | P1 | M4 收口 | 🔶 密钥编排为非标准 Blowfish（N63）；设置解码待 |
+| U20 | GeometryCompress 设置来源 | P1 | M4 收口 | 🔶 GenSubkeys2=标准 Blowfish（N64）；40B 非设置明文，来源待 |
 | U21 | 几何三角索引：codec 已定（N58 `DecodeIndexTable`）；**元素内索引区定位**（嵌套集尺寸 + 压缩标志）待 | P1 | M4 收口 | 🔶 codec 落地（N58/N61） |
 | U22 | GeometryCompress 流实为 40B（本样本）之语义（是否空/占位） | P2 | M4 | 开 |
 
@@ -155,3 +155,12 @@
 | **N63** | GeometryCompress 使用 **`NwBlowfish::GenSubkeys2`（非标准密钥编排：按键字节求和填充）**，非标准 Blowfish；故 40B 设置流的标准 Blowfish 解密失败 → 几何压缩设置（坐标/颜色精度、indices/lengths 压缩位）仍待（U20/U22） | 观察 | E2 GenSubkeys2@0xbcdddc |
 
 **残余任务结论**：U21 元素内索引区定位、U19 Spatial 完整层级、U20 几何压缩设置三项均需进一步深度逆向（GenSubkeys2 状态机、嵌套集尺寸解析、Spatial 记录文法），收敛不确定；现有交付（容器/流/根/属性/顶点/索引 codec）已覆盖真实文件的主要可读信息。
+
+## C12 轮（2026-10-13，U20/U21 收口尝试）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N64** | `NwBlowfish::GenSubkeys2` = **标准 Blowfish 密钥编排**（相位1：key 字节循环（`divl keylen`）组装 32 位字 XOR 进 18 个 P；相位2：`BF_En` 迭代填充 P/S）。⇒ 与 GenSubkeys 同义，故 40B GeometryCompress 的**标准解密结果即真实明文** `81 70 ae 6b …`（高熵），**并非明文设置结构** → 该 40B 或为摘要/占位，几何压缩设置来源另寻 | 观察 | E2 GenSubkeys2@0xbcdddc |
+| **N65** | 元素索引/每面顶点数数组**非简单原始 u16**：对真实块0（0..9640）按 `[i32 count][count×u16]` 精确落位搜索失败 ⇒ 走**表压缩路径**（`readIndexTable` 等，N58）；数组定位需 `readVertexesPerLine/readIndexesPerLine` 头部字段 + 压缩标志 | 观察（部分） | 样本 Geometry 块0 |
+
+**取舍**：U20/U21 尾项依赖「几何压缩设置来源」与「元素数组头部文法」，二者互为前置且未收敛；不交付推测解码器。
