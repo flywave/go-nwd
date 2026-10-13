@@ -211,11 +211,12 @@ type Attribute struct {
 	Binary    []byte
 	Nested    []*Object
 
-	// PublishAttribute (type 92) fields, best-effort (U18).
+	// PublishAttribute (type 92) fields.
 	Title, Subject, Author, Publisher           string
 	Copyright, PublishedFor, Comments, Keywords string
 	Password                                    string
 	ExplicitName                                string
+	PublishDate, ExpiryDate                     int64
 }
 
 // decodeAttribute reads the shared attribute prefix (ModelBase + u32

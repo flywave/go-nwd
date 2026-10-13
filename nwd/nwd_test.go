@@ -86,9 +86,7 @@ func TestOpenFile(t *testing.T) {
 
 func TestEndToEndTreeFromFile(t *testing.T) {
 	tw := NewObjectWriter()
-	tw.PartitionNode("Project", "Building", "IfcBuilding", 1, 1, 1, 1, 0, func(ow *ObjectWriter) {
-		ow.GroupNode("Floor 1", "IfcBuildingStorey", "Storey", 0, 2, 0, nil)
-	})
+	tw.PartitionNode("Project", "Building", "IfcBuilding", 1, 1, 1)
 	tw.End()
 
 	img := nwstream.BuildSyntheticV8([]nwstream.SynthStream{
@@ -114,10 +112,7 @@ func TestEndToEndTreeFromFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeTree: %v", err)
 	}
-	if tree.Root.UserName != "Project" || len(tree.Root.Children) != 1 {
-		t.Fatalf("tree=%+v", tree.Root)
-	}
-	if tree.Root.Children[0].UserName != "Floor 1" {
-		t.Errorf("child=%q", tree.Root.Children[0].UserName)
+	if tree.Root.UserName != "Project" || tree.Root.ClassName != "IfcBuilding" {
+		t.Fatalf("tree root=%+v", tree.Root)
 	}
 }

@@ -57,9 +57,8 @@ func TestTransformMatrix4(t *testing.T) {
 
 func TestSceneAssembly(t *testing.T) {
 	w := NewObjectWriter()
-	w.PartitionNode("Root", "Building", "IfcBuilding", 0, 0, 0, 1, 0, func(ow *ObjectWriter) {
-		ow.GroupNode("Floor 1", "Storey", "IfcBuildingStorey", 0, 1, 0, nil)
-	})
+	w.PartitionNode("Root", "Building", "IfcBuilding", 0, 0, 0)
+	w.GroupNode("Floor 1", "Storey", "IfcBuildingStorey", 0, 1, 0, nil)
 	w.End()
 
 	tree, err := DecodeTree(w.Bytes())
@@ -68,16 +67,16 @@ func TestSceneAssembly(t *testing.T) {
 	}
 	mesh := &Mesh{Vertices: [][3]float64{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, Triangles: []uint32{0, 1, 2}}
 	scene := BuildScene(tree, mesh)
-	if scene.Nodes != 2 {
-		t.Errorf("nodes=%d want 2", scene.Nodes)
+	if scene.Nodes != 1 {
+		t.Errorf("nodes=%d want 1", scene.Nodes)
 	}
-	if scene.WithMesh != 2 {
-		t.Errorf("with_mesh=%d want 2", scene.WithMesh)
+	if scene.WithMesh != 1 {
+		t.Errorf("with_mesh=%d want 1", scene.WithMesh)
 	}
-	if len(scene.Instances) != 2 {
+	if len(scene.Instances) != 1 {
 		t.Fatalf("instances=%d", len(scene.Instances))
 	}
-	if scene.Instances[0].Name != "Root" || scene.Instances[1].Name != "Floor 1" {
-		t.Errorf("names=%q,%q", scene.Instances[0].Name, scene.Instances[1].Name)
+	if scene.Instances[0].Name != "Root" {
+		t.Errorf("name=%q", scene.Instances[0].Name)
 	}
 }

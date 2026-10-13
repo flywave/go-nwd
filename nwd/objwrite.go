@@ -72,17 +72,12 @@ func (w *ObjectWriter) modelItem(userName, classDisplay, className string, flags
 	w.u32(attrCount)
 }
 
-// PartitionNode writes a type-32 node: modelType + modelItem +
-// childCount/children + usage.
-func (w *ObjectWriter) PartitionNode(userName, classDisplay, className string, modelType, flags, guid uint32, childCount uint32, usage int32, writeChildren func(*ObjectWriter)) {
+// PartitionNode writes a type-32 node: modelType + modelItem (real-file
+// layout; no inline children/usage, findings N56).
+func (w *ObjectWriter) PartitionNode(userName, classDisplay, className string, modelType, flags, guid uint32) {
 	w.BeginNew(PartitionNode)
 	w.u32(modelType)
 	w.modelItem(userName, classDisplay, className, flags, guid, 0)
-	w.u32(childCount)
-	if writeChildren != nil {
-		writeChildren(w)
-	}
-	w.i32(usage)
 }
 
 // GroupNode writes a type-53 node with childCount children written by fn.

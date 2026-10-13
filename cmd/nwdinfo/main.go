@@ -28,18 +28,22 @@ func main() {
 	}
 	out := struct {
 		*nwd.Metadata
-		Tree          *nwd.Tree          `json:"tree,omitempty"`
-		PartitionRoot *nwd.PartitionRoot `json:"partition_root,omitempty"`
-		Mesh          *nwd.Mesh          `json:"mesh,omitempty"`
-		Schemas       []nwd.Schema       `json:"schemas,omitempty"`
-		Scene         *nwd.Scene         `json:"scene,omitempty"`
-		PropertyNames []nwd.NameRecord   `json:"property_names,omitempty"`
-		Geometry      *geomSummary       `json:"geometry,omitempty"`
+		Tree             *nwd.Tree          `json:"tree,omitempty"`
+		PartitionRoot    *nwd.PartitionRoot `json:"partition_root,omitempty"`
+		PartitionObjects *nwd.ObjectStream  `json:"partition_objects,omitempty"`
+		Mesh             *nwd.Mesh          `json:"mesh,omitempty"`
+		Schemas          []nwd.Schema       `json:"schemas,omitempty"`
+		Scene            *nwd.Scene         `json:"scene,omitempty"`
+		PropertyNames    []nwd.NameRecord   `json:"property_names,omitempty"`
+		Geometry         *geomSummary       `json:"geometry,omitempty"`
 	}{Metadata: f.Metadata}
 
 	if idx := f.StreamByName("LcOpNwdPartition"); idx >= 0 {
 		if root, err := f.DecodePartitionRoot(idx); err == nil {
 			out.PartitionRoot = root
+		}
+		if objs, err := f.DecodeObjectStream(idx, 451, 8); err == nil && len(objs.Objects) > 0 {
+			out.PartitionObjects = objs
 		}
 		tree, err := f.DecodeTree(idx)
 		if err != nil {

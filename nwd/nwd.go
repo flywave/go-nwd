@@ -186,6 +186,16 @@ func (f *File) DecodeSchemas(i int) ([]Schema, error) {
 	return DecodeSchemas(data)
 }
 
+// DecodeObjectStream decodes stream i as a tolerant object graph
+// (real-file path, findings N56).
+func (f *File) DecodeObjectStream(i int, formatVersion uint32, limit int) (*ObjectStream, error) {
+	data, err := f.c.StreamData(i)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeObjectStream(data, formatVersion, limit), nil
+}
+
 // DecodePartitionRoot decodes partition stream i's root PartitionNode
 // header (M3 real-file path, findings N42).
 func (f *File) DecodePartitionRoot(i int) (*PartitionRoot, error) {

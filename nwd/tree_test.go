@@ -7,7 +7,7 @@ import (
 
 func TestPartitionNodeRoundTrip(t *testing.T) {
 	w := NewObjectWriter()
-	w.PartitionNode("My Project", "Level 1", "Site", 1, 0x3, 7, 0, 0, nil)
+	w.PartitionNode("My Project", "Level 1", "Site", 1, 0x3, 7)
 	w.End()
 
 	tree, err := DecodeTree(w.Bytes())
@@ -30,49 +30,45 @@ func TestPartitionNodeRoundTrip(t *testing.T) {
 	if root.Flags != 0x3 || root.GuidIndex != 7 {
 		t.Errorf("flags/guid=%#x/%d", root.Flags, root.GuidIndex)
 	}
-	if root.Usage == nil || *root.Usage != 0 {
-		t.Errorf("usage=%v", root.Usage)
-	}
 	if tree.Objects != 1 {
 		t.Errorf("top-level objects=%d want 1", tree.Objects)
 	}
 }
 
-func TestNestedGroupTree(t *testing.T) {
+func TestGroupNodeChildren(t *testing.T) {
 	w := NewObjectWriter()
-	w.PartitionNode("Root", "Model", "Building", 0, 0, 0, 2, 1, func(ow *ObjectWriter) {
-		ow.GroupNode("Level A", "Floor", "Slab", 0x10, 1, 1, func(ow2 *ObjectWriter) {
-			ow2.GroupNode("Room 101", "Space", "Office", 0, 2, 0, nil)
-		})
+	// Group node with two children (GroupModelItemNode, type 53).
+	w.GroupNode("Level A", "Floor", "Slab", 0x10, 1, 2, func(ow *ObjectWriter) {
+		ow.GroupNode("Room 101", "Space", "Office", 0, 2, 0, nil)
 		ow.GroupNode("Room 102", "Space", "Lab", 0, 3, 0, nil)
 	})
 	w.End()
 
-	tree, err := DecodeTree(w.Bytes())
+	or := NewObjectReader(w.Bytes(), formatVersionGate)
+	root, err := or.ReadObject()
 	if err != nil {
-		t.Fatalf("DecodeTree: %v", err)
+		t.Fatalf("ReadObject: %v", err)
 	}
-	root := tree.Root
+	if root.TypeID != GroupModelItemNode {
+		t.Fatalf("type=%d", root.TypeID)
+	}
+	if root.UserName != "Level A" {
+		t.Errorf("user=%q", root.UserName)
+	}
 	if len(root.Children) != 2 {
-		t.Fatalf("root children=%d want 2", len(root.Children))
+		t.Fatalf("children=%d want 2", len(root.Children))
 	}
-	if root.Children[0].UserName != "Level A" {
-		t.Errorf("child0 user=%q", root.Children[0].UserName)
-	}
-	if len(root.Children[0].Children) != 1 || root.Children[0].Children[0].UserName != "Room 101" {
-		t.Errorf("grandchild=%+v", root.Children[0].Children)
-	}
-	if root.Children[1].UserName != "Room 102" {
-		t.Errorf("child1 user=%q", root.Children[1].UserName)
+	if root.Children[0].UserName != "Room 101" || root.Children[1].UserName != "Room 102" {
+		t.Errorf("children=%q,%q", root.Children[0].UserName, root.Children[1].UserName)
 	}
 	if root.Children[0].TypeName != "OdNwGroupModelItemNode" {
-		t.Errorf("child0 type=%q", root.Children[0].TypeName)
+		t.Errorf("child type=%q", root.Children[0].TypeName)
 	}
 }
 
 func TestBackref(t *testing.T) {
 	w := NewObjectWriter()
-	w.Name("A", "B") // vector index 0
+	w.Name("A", "B")
 	w.WriteBackref(0)
 	w.End()
 
@@ -92,7 +88,7 @@ func TestBackref(t *testing.T) {
 
 func TestCensusUnsupportedType(t *testing.T) {
 	w := NewObjectWriter()
-	w.PartitionNode("P", "C", "W", 0, 0, 0, 0, 0, nil)
+	w.PartitionNode("P", "C", "W", 0, 0, 0)
 	w.BeginNew(106) // Plot type — no payload decoder
 	c := CensusStream(w.Bytes(), formatVersionGate)
 	if c.Err == nil || !errors.Is(c.Err, ErrUnsupportedType) {
@@ -118,19 +114,20 @@ func TestObjTypeTable(t *testing.T) {
 	}
 }
 
-func TestFormatVersionGate(t *testing.T) {
+func TestFormatVersionLayout(t *testing.T) {
+	// The ModelItem layout is shared across the versions we implement; the
+	// reader accepts any FormatVersion (older-version divergences are U10).
 	w := NewObjectWriter()
-	w.PartitionNode("P", "C", "W", 0, 0, 0, 0, 0, nil)
+	w.PartitionNode("P", "C", "W", 0, 0, 0)
 	w.End()
-	if _, err := DecodeTree(w.Bytes()); err != nil {
-		t.Fatalf("decode at gate version: %v", err)
-	}
-	or := NewObjectReader(w.Bytes(), 21) // ≤21 rejects ModelBase
-	if _, err := or.ReadObject(); err == nil {
-		t.Fatal("want error for format version ≤ 21")
-	}
-	or = NewObjectReader(w.Bytes(), 300) // >248 gated path
-	if _, err := or.ReadObject(); err == nil {
-		t.Fatal("want error for format version > 248 (U10)")
+	for _, v := range []uint32{22, 248, 451} {
+		or := NewObjectReader(w.Bytes(), v)
+		o, err := or.ReadObject()
+		if err != nil {
+			t.Fatalf("version %d: %v", v, err)
+		}
+		if o == nil || o.UserName != "P" {
+			t.Errorf("version %d: %+v", v, o)
+		}
 	}
 }

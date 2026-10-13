@@ -201,3 +201,91 @@ func CensusStream(stream []byte, formatVersion uint32) *Census {
 		}
 	}
 }
+
+// DecodedObject is a top-level envelope object from an object stream.
+type DecodedObject struct {
+	TypeID    int        `json:"type_id"`
+	TypeName  string     `json:"type_name"`
+	UserName  string     `json:"user_name,omitempty"`
+	ClassName string     `json:"class_name,omitempty"`
+	AttrCount int        `json:"attr_count,omitempty"`
+	Attrs     []AttrView `json:"attributes,omitempty"`
+}
+
+// AttrView is a compact view of an attribute object.
+type AttrView struct {
+	Kind        AttributeKind `json:"kind"`
+	TypeID      int           `json:"type_id"`
+	TypeName    string        `json:"type_name"`
+	UserName    string        `json:"user_name,omitempty"`
+	ClassName   string        `json:"class_name,omitempty"`
+	AttrFlags   uint32        `json:"attr_flags,omitempty"`
+	Text        string        `json:"text,omitempty"`
+	Number      uint32        `json:"number,omitempty"`
+	PublishDate int64         `json:"publish_date,omitempty"`
+	ExpiryDate  int64         `json:"expiry_date,omitempty"`
+}
+
+// ObjectStream is a tolerant decode of an object stream.
+type ObjectStream struct {
+	Objects       []DecodedObject `json:"objects"`
+	StoppedAtType int             `json:"stopped_at_type,omitempty"`
+	StoppedAtName string          `json:"stopped_at_name,omitempty"`
+}
+
+// DecodeObjectStream walks a logical stream (real-file tolerant, N56):
+// decodes top-level envelopes and their attributes until an unsupported
+// payload type or a nil terminator.
+func DecodeObjectStream(stream []byte, formatVersion uint32, limit int) *ObjectStream {
+	out := &ObjectStream{}
+	or := NewObjectReader(stream, formatVersion)
+	for {
+		if limit > 0 && len(out.Objects) >= limit {
+			break
+		}
+		obj, err := or.ReadObject()
+		if err != nil {
+			out.StoppedAtName = err.Error()
+			break
+		}
+		if obj == nil {
+			break
+		}
+		out.Objects = append(out.Objects, viewObject(obj))
+		if or.Remaining() == 0 {
+			break
+		}
+	}
+	return out
+}
+
+func viewObject(o *Object) DecodedObject {
+	d := DecodedObject{TypeID: o.TypeID, TypeName: o.TypeName, UserName: o.UserName, AttrCount: len(o.Attributes)}
+	if o.ClassName != nil {
+		if o.ClassName.Name != "" {
+			d.ClassName = o.ClassName.Name
+		} else {
+			d.ClassName = o.ClassName.DisplayName
+		}
+	}
+	for _, a := range o.Attributes {
+		d.Attrs = append(d.Attrs, viewAttr(a))
+	}
+	return d
+}
+
+func viewAttr(a *Object) AttrView {
+	v := AttrView{TypeID: a.TypeID, TypeName: a.TypeName}
+	if a.Attribute != nil {
+		at := a.Attribute
+		v.Kind = at.Kind
+		v.UserName = at.UserName
+		v.ClassName = at.ClassName
+		v.AttrFlags = at.AttrFlags
+		v.Text = at.Text
+		v.Number = at.Number
+		v.PublishDate = at.PublishDate
+		v.ExpiryDate = at.ExpiryDate
+	}
+	return v
+}

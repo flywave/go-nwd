@@ -11,13 +11,12 @@ import (
 func main() {
 	// Partition object stream (M3): root with two group children.
 	tw := nwd.NewObjectWriter()
-	tw.PartitionNode("Sample Project", "Building A", "IfcBuilding", 1, 0x7, 1, 2, 0, func(ow *nwd.ObjectWriter) {
-		ow.GroupNode("Level 01", "IfcBuildingStorey", "Storey", 0x10, 2, 2, func(ow2 *nwd.ObjectWriter) {
-			ow2.GroupNode("Room 101", "IfcSpace", "Office", 0, 3, 0, nil)
-			ow2.GroupNode("Room 102", "IfcSpace", "Lab", 0, 4, 0, nil)
-		})
-		ow.GroupNode("Level 02", "IfcBuildingStorey", "Storey", 0x10, 5, 0, nil)
+	tw.PartitionNode("Sample Project", "Building A", "IfcBuilding", 1, 0x7, 1)
+	tw.GroupNode("Level 01", "IfcBuildingStorey", "Storey", 0x10, 2, 2, func(ow2 *nwd.ObjectWriter) {
+		ow2.GroupNode("Room 101", "IfcSpace", "Office", 0, 3, 0, nil)
+		ow2.GroupNode("Room 102", "IfcSpace", "Lab", 0, 4, 0, nil)
 	})
+	tw.GroupNode("Level 02", "IfcBuildingStorey", "Storey", 0x10, 5, 0, nil)
 	tw.End()
 
 	// GeometryCompress stream (M4): Blowfish-sealed blocks with a mesh.

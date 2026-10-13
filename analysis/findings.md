@@ -106,6 +106,16 @@
 | **N53** | `readIndexTable` = **2-bit 标签变长字节流**：每字节 `& 0xC0` 分派（0x00/0x40/0x80/0xC0 四态），低 6 位为值位；即量化/位打包索引。完整状态机待展开（U21） | 观察 | E2 readIndexTable@0xc275de |
 | N54 | 几何点云可导出：`cmd/nwdgeom` → PLY（1,261,016 顶点，35MB，格式头合法） | 观察（实现） | go-nwd `cmd/nwdgeom` |
 
+## C10 轮（2026-10-13，U18/U19/U21 真实收口）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N55** | **空字符串**：`readString` 长度为负（-1）表示 null/未设置，仅消费 4 字节长度字段；据此 PublishAttribute payload 精确对齐 72B | 观察 | 样本 Partition 偏移 112 |
+| **N56** | **属性布局定案**：属性对象 = ModelBase（userName 字符串 + Name 对象） + `u32 attrFlags`，随后子类字段；`PublishAttribute(92)` = `i32 publishFlags + 4 串(title/subject/author/publisher) + align8 + 2×i64(publishDate/expiryDate) + 4 串(copyright/publishedFor/comments/keywords) + 串(explicitName)`。**真实解码**：user=null、publishFlags=96、publishDate=1761886170（2025‑10‑31 UTC） | 观察 | 样本 Partition；`ObjectReader.decodePublishAttribute` |
+| **N57** | **PartitionNode 无内联子节点/usage**：真实流中根节点 = `u32 modelType` + ModelItem（base+flags+guid+attrCount+attrs），其后直接是同级对象（DistantLight×2）。M3 的 `childCount/children/usage` 属夹具推测，已按真实校正；ModelItem 布局在 v451 与推测窗口一致（>248 门控不影响该三字段） | 观察 | 样本 Partition；`decodePartitionNode` |
+| **N58** | **几何索引 codec 定案**：`readIndexTable` = 2-bit 标签变长字节流（0x00 递增游程 / 0x40 回指 / 0x80 重复末值 / 0xD0 4bit 字面 / 0xE0 12bit / 0xF0 28bit）；`DecodeIndexTable` 落地并合成测试通过；元素内索引区定位（嵌套 Normal/Color 集尺寸）仍待（U21 尾项） | 观察 | E2 @0xc275de；`DecodeIndexTable` |
+| N59 | **真实对象流容错解码**：`DecodeObjectStream` 顺序解码顶层信封与属性，遇未支持类型（如 DistantLight 27）记录并停止；真实 Partition 得 root+PublishAttribute | 观察 | 样本；`nwdinfo.partition_objects` |
+
 **样本校正实现状态**：容器层（M1/M2）在真实 25.7MB 文件上**全量通过**（27 流清单、偏移/尺寸、26 流 zlib inflate）；golden 测试见 `nwd/real_test.go`。
 
 ## 挂账（未知 → 队列）
@@ -129,8 +139,8 @@
 | U15 | CommonSchemas 流顶层计数/字段序与真实流名 | P0 | M5 收口 | 开（夹具对齐布局） |
 | U16 | PropertyAttribute 嵌套值编码 + PartitionProps 块↔节点映射 | P1 | M5 收口 | 开 |
 | U17 | ObjMatrix(17) 元素数（12/16）与排列 | P2 | M6 收口 | 开 |
-| U18 | 真实属性类型 payload 全表（PublishAttribute 92 已探部分；余 70/76/79/86/88/180 等按真实流校正） | P0 | M3/M5 收口 | 开（样本已解锁） |
-| U19 | Partition 流完整对象图（attrCount>0 的属性序列与子节点/变换） | P0 | M3 收口 | 开 |
+| U18 | 真实属性类型 payload 全表 | P0 | M3/M5 收口 | ✅ PublishAttribute 定案（N56）；余 70/76/79/86/88/180 同基类 |
+| U19 | 完整模型树（SpatialHierarchy 索引 → 节点层级） | P0 | M3 收口 | 🔶 Partition 根+属性已解（N57/N59）；Spatial 层级待 |
 | U20 | GeometryCompress 几何块容器（Blowfish 8B，块表校验）与 Geometry 流真实内容 | P0 | M4 收口 | 🔶 Geometry 流顶点已解（N47/N48）；索引量化 → U21 |
-| U21 | 几何**索引**集：结构已定（N51：`i32 count + count×u16` 或 `readIndexTable` 表压缩）；本样本走表压缩，`readIndexTable` 语义待定 | P0 | M4 收口 | 🔶 结构定案（N50/N51） |
+| U21 | 几何三角索引：codec 已定（N58 `DecodeIndexTable`）；**元素内索引区定位**（嵌套 Normal/Color 集尺寸）待 | P0 | M4 收口 | 🔶 codec 落地 |
 | U22 | GeometryCompress 流实为 40B（本样本）之语义（是否空/占位） | P2 | M4 | 开 |

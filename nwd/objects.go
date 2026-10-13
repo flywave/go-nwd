@@ -72,16 +72,16 @@ func (r *byteReader) align(a int) {
 }
 
 // readString decodes NwStreamCommon::readString<align0> (findings N21/N37):
-// i32 byteLen, byteLen UTF-8 bytes, then pad to a 4-byte boundary. Verified
-// against a real NWD: the padding sits after the bytes (e.g. a 39-byte name
-// consumed at offset 16 ends at 55 and is padded to 56).
+// i32 byteLen, byteLen UTF-8 bytes, then pad to a 4-byte boundary. A
+// negative byteLen denotes a null/unset string and consumes only the
+// length field (verified against real NWD attribute payloads, N56).
 func (r *byteReader) readString() (string, error) {
 	n, err := r.i32()
 	if err != nil {
 		return "", err
 	}
 	if n < 0 {
-		return "", fmt.Errorf("nwd: negative string length %d", n)
+		return "", nil
 	}
 	b, err := r.raw(int(n))
 	if err != nil {
@@ -189,6 +189,9 @@ func (o *ObjectReader) decodePayload(obj *Object) error {
 			_, err := o.decodeTransform(obj)
 			return err
 		}
+		if obj.TypeID == TypePublishAttribute {
+			return o.decodePublishAttribute(obj)
+		}
 		return fmt.Errorf("%w: type %d (%s)", ErrUnsupportedType, obj.TypeID, obj.TypeName)
 	}
 }
@@ -207,14 +210,10 @@ func (o *ObjectReader) decodeName(obj *Object) error {
 	return nil
 }
 
-// decodeModelBase reads the shared node prefix (findings N22):
-// [string userName][object className]. Gate formatVersion>21 is applied
-// by the caller-set FormatVersion; values ≤21 are rejected by OpenTree
-// as U10 low-version paths.
+// decodeModelBase reads the shared node prefix (findings N22/N56):
+// [string userName][object className]. Verified against a real v451 NWD
+// (DecodePartitionRoot); older-version layouts remain U10.
 func (o *ObjectReader) decodeModelBase(obj *Object) error {
-	if o.FormatVersion <= 21 {
-		return fmt.Errorf("nwd: format version %d ≤ 21 unsupported (U10)", o.FormatVersion)
-	}
 	un, err := o.r.readString()
 	if err != nil {
 		return err
@@ -228,10 +227,9 @@ func (o *ObjectReader) decodeModelBase(obj *Object) error {
 	return nil
 }
 
-// decodeModelItem reads the ModelItemNode middle layer (findings N22):
-// flags u32, [version-gated], guidIndex u32, attrCount u32, attrs.
-// The v>248 gated branch is skipped for now (U10) — FormatVersion is
-// required to be in (21, 248] for this path.
+// decodeModelItem reads the ModelItemNode middle layer (findings N22/N56):
+// u32 flags, u32 guidIndex, u32 attrCount, then attrCount attribute
+// objects. Verified against a real v451 NWD.
 func (o *ObjectReader) decodeModelItem(obj *Object) error {
 	if err := o.decodeModelBase(obj); err != nil {
 		return err
@@ -241,9 +239,6 @@ func (o *ObjectReader) decodeModelItem(obj *Object) error {
 		return err
 	}
 	obj.Flags = flags
-	if o.FormatVersion > 248 {
-		return fmt.Errorf("nwd: format version %d > 248 gated path unimplemented (U10)", o.FormatVersion)
-	}
 	gi, err := o.r.u32()
 	if err != nil {
 		return err
@@ -269,29 +264,17 @@ func (o *ObjectReader) decodeModelItem(obj *Object) error {
 	return nil
 }
 
-// decodePartitionNode reads typeID 32 (findings N22 §PartitionNode):
-// u32 modelType, ModelItem middle, childCount+children, trailing usage
-// enum i32. Child placement between base and usage matches the traced
-// getChildren/readEnum order in PartitionNodeReader@0xc47641–0xc478c2
-// (fixture-pinned until real samples, U10).
+// decodePartitionNode reads typeID 32 (real-file verified, findings N56):
+// u32 modelType, then the ModelItem middle (ModelBase + flags + guid +
+// attrCount + attributes). The real Partition stream has no inline
+// child/usage fields after the attributes (the next object is a sibling).
 func (o *ObjectReader) decodePartitionNode(obj *Object) error {
 	mt, err := o.r.u32()
 	if err != nil {
 		return err
 	}
 	obj.ModelType = &mt
-	if err := o.decodeModelItem(obj); err != nil {
-		return err
-	}
-	if err := o.decodeChildren(obj); err != nil {
-		return err
-	}
-	usage, err := o.r.i32()
-	if err != nil {
-		return err
-	}
-	obj.Usage = &usage
-	return nil
+	return o.decodeModelItem(obj)
 }
 
 // decodeChildren reads u32 childCount followed by that many objects.
@@ -334,4 +317,75 @@ func (o *ObjectReader) Remaining() int { return len(o.r.buf) - o.r.pos }
 // the given format-version gate value (context+0x18 semantics).
 func NewObjectReader(data []byte, formatVersion uint32) *ObjectReader {
 	return &ObjectReader{r: newBR(data), FormatVersion: formatVersion}
+}
+
+// decodePublishAttribute reads typeID 92 (PublishAttribute) after the base
+// Attribute prefix (E2 OdNwPublishAttributeReader::readElement@0xc58ffa,
+// verified against the real NWD, findings N56):
+//
+//	[ModelBase: string userName + object Name]   (base attribute)
+//	u32 attrFlags                                 (base attribute)
+//	i32 publishFlags
+//	string title, subject, author, publisher
+//	align 8
+//	i64 publishDate, expiryDate
+//	string copyright, publishedFor, comments, keywords
+//	string explicitName
+func (o *ObjectReader) decodePublishAttribute(obj *Object) error {
+	if err := o.decodeModelBase(obj); err != nil {
+		return err
+	}
+	a := &Attribute{Kind: AttrPublish, TypeID: obj.TypeID, UserName: obj.UserName}
+	if obj.ClassName != nil {
+		a.ClassName = obj.ClassName.Name
+	}
+	attrFlags, err := o.r.u32()
+	if err != nil {
+		return err
+	}
+	a.AttrFlags = attrFlags
+	pf, err := o.r.i32()
+	if err != nil {
+		return err
+	}
+	a.Number = uint32(pf)
+	for _, fp := range []*string{&a.Title, &a.Subject, &a.Author, &a.Publisher} {
+		s, err := o.r.readString()
+		if err != nil {
+			return err
+		}
+		*fp = s
+	}
+	o.r.align(8)
+	ts := make([]int64, 2)
+	for i := range ts {
+		if ts[i], err = o.r.i64(); err != nil {
+			return err
+		}
+	}
+	a.PublishDate, a.ExpiryDate = ts[0], ts[1]
+	for _, fp := range []*string{&a.Copyright, &a.PublishedFor, &a.Comments, &a.Keywords} {
+		s, err := o.r.readString()
+		if err != nil {
+			return err
+		}
+		*fp = s
+	}
+	if nm, err := o.r.readString(); err == nil {
+		a.ExplicitName = nm
+	}
+	obj.Attribute = a
+	return nil
+}
+
+func (r *byteReader) i64() (int64, error) {
+	b, err := r.raw(8)
+	if err != nil {
+		return 0, err
+	}
+	var v uint64
+	for i := 0; i < 8; i++ {
+		v |= uint64(b[i]) << (8 * i)
+	}
+	return int64(v), nil
 }

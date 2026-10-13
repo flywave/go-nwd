@@ -195,3 +195,36 @@ func TestRealGeometryVertices(t *testing.T) {
 		t.Errorf("block0 vertices=%d", len(b0.Vertices))
 	}
 }
+
+func TestRealPartitionObjects(t *testing.T) {
+	f := openReal(t)
+	pi := f.StreamByName("LcOpNwdPartition")
+	if pi < 0 {
+		t.Fatal("partition stream not found")
+	}
+	os, err := f.DecodeObjectStream(pi, 451, 0)
+	if err != nil {
+		t.Fatalf("DecodeObjectStream: %v", err)
+	}
+	if len(os.Objects) == 0 {
+		t.Fatal("no objects decoded")
+	}
+	root := os.Objects[0]
+	if root.TypeID != PartitionNode || root.UserName != "BCCCH_BIM Coordination Model_251024.nwd" {
+		t.Fatalf("root=%+v", root)
+	}
+	if root.ClassName != "LcOaPartition" {
+		t.Errorf("class=%q", root.ClassName)
+	}
+	if len(root.Attrs) != 1 {
+		t.Fatalf("root attrs=%d want 1", len(root.Attrs))
+	}
+	pub := root.Attrs[0]
+	if pub.Kind != AttrPublish || pub.TypeID != 92 {
+		t.Errorf("attr=%+v", pub)
+	}
+	// Real publish timestamp (2025-10-31).
+	if pub.PublishDate < 1_700_000_000 || pub.PublishDate > 1_800_000_000 {
+		t.Errorf("publish_date=%d out of plausible range", pub.PublishDate)
+	}
+}
