@@ -163,6 +163,16 @@ func (f *File) DecodeTree(i int) (*Tree, error) {
 	return DecodeTree(data)
 }
 
+// DecodeGeometryBlocks decrypts and parses the GeometryCompress stream i
+// into its block table (M4, findings N23).
+func (f *File) DecodeGeometryBlocks(i int) ([]GeometryBlock, error) {
+	data, err := f.c.StreamData(i)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeGeometryBlocks(data)
+}
+
 // OpenFile reads path and returns its metadata.
 func OpenFile(path string) (*Metadata, error) {
 	buf, err := os.ReadFile(path)

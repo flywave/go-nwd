@@ -29,6 +29,7 @@ func main() {
 	out := struct {
 		*nwd.Metadata
 		Tree *nwd.Tree `json:"tree,omitempty"`
+		Mesh *nwd.Mesh `json:"mesh,omitempty"`
 	}{Metadata: f.Metadata}
 
 	if idx := f.StreamByName("LcOpNwdPartition"); idx >= 0 {
@@ -37,6 +38,16 @@ func main() {
 			fmt.Fprintln(os.Stderr, "warning: partition tree:", err)
 		} else {
 			out.Tree = tree
+		}
+	}
+
+	// GeometryCompress: decode blocks and assemble a mesh when block 0/1
+	// hold a vertex set and an index list (uncompressed path, M4).
+	if idx := f.StreamByName("LcOpNwdGeometryCompress"); idx >= 0 {
+		if blocks, err := f.DecodeGeometryBlocks(idx); err == nil && len(blocks) >= 2 {
+			if m, err := nwd.BuildMesh(blocks[0].Data, blocks[1].Data); err == nil {
+				out.Mesh = m
+			}
 		}
 	}
 

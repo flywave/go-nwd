@@ -41,6 +41,15 @@
 | N21 | **字符串**：`readString<align0>` = `i32 字节长` + align4 + **UTF-8**（utf8ToUnicode）；getAlignment(0)=4、(1)=8 | 观察 | E2 readString@0xc31bfe；getAlignment@0xc30b48 |
 | N22 | 节点 Schema：ModelBase=[string userName][object→Name className]（门控 fv>21）；ModelItemNode 中层=[u32 flags][门控 fv>248 未实现][u32 guidIndex][u32 attrCount + attrs]；PartitionNode=u32 modelType + ModelItem + children + usage enum；Name=[displayName][name]；FormatVersionEx=reader 门控版本（context+0x18，>21/>214/>248/>451 档） | 观察（children 位置夹具对齐 traced 顺序；U10 门控残项） | E2 ModelBase@0xc37dc2、ModelItemNode@0xc38cbe、PartitionNode@0xc47582、Name@0xc378b8、getFormatVersion=manager+0x18 |
 
+## C4 轮（2026-10-13，M4 几何层）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| N23 | **GeometryCompress 流** = 8 字节块 Blowfish-ECB 解密（密钥 `sGeometryCompressKey@0x16ee400`，**与 M2 TOC 密钥同值**）→ `i32 blockCount` + 每块 `i32 size + bytes + u32 adler32`；块内含几何集对象流 | 观察（块计数/布局夹具对齐） | E2 parseStream@0xd3c0d6/0xd3c2f1/0xd3c34a；rodata 0x16ee400 |
+| N24 | **顶点集**未压缩路径 = `i32 count + count×(f32 x,y,z)`；压缩路径经 `readIndexes/readBits/readIndexTable + fillPoint3dArrayByIndexes`（位打包量化，由 GeometryCompressSettings 精度控制） | 观察（未压缩定案；压缩结构→U12） | E2 VertexSet readElement@0xc26590、readVertices@0xc26e80 |
+| N25 | **Fragment（typeID 13）** = 11 flag 位 × 8 版本门控的可变记录；含 traversableScale(f64)/traversableTris(u32)/primitives(u8)/readObject(变换 14–17 或几何引用 93)/RunPath；精确字段序→U14 | 观察（部分） | E2 FragmentReader@0xc5cac6 |
+| N26 | 几何集族：ColorSet(58,readColors+u8 通道宽)、NormalSetFloat(59)/Short(100)、TexCoordSet(61,OdGePoint2d)、LineSet/PointSet/TriangleSet(81/80/62→Element 95/96/94)；TriangleSet 建 GeometryRef + addGeometry 注册 | 观察 | E2 各 Reader readElement |
+
 ## 挂账（未知 → 队列）
 
 | ID | 问题 | 优先级 | 阻塞 | 状态 |
@@ -56,3 +65,6 @@
 | U9 | Partition/Hierarchy/GeometryCompress/Schemas 流内布局 | P0(P1 清单) | M3–M5 | 🔶 信封+树节点 schema 落地（N19–N22）；Geometry/Schemas 流内格式仍开 |
 | U10 | FormatVersionEx 全档位与各门控字段精确布局（>21/>214/>248/>451 分支）；版本注入点（FileInfo vs 流头） | P0 | M3 收口 | 开（夹具固定 fv=100 窗口） |
 | U11 | StaticTreeGroup/Leaf（空间层次）与 Fragment 引用编码 | P1 | M4 联调 | 开 |
+| U12 | 位打包量化几何（readIndexes/readBits/readIndexTable + 精度还原） | P0 | M4 收口 | 开（需真实样例） |
+| U13 | GeometryCompress 块计数/每块精确布局 + 块↔几何索引映射 | P1 | M4 收口 | 开 |
+| U14 | Fragment 11 flag 位 × 8 版本门控精确字段序 | P1 | M4/M5 联调 | 开 |

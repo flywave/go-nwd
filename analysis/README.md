@@ -23,6 +23,7 @@ NWD 格式的分析与实现**独立于 go-dgn / go-rvt**，同级仓库。
 | `analysis/01-container.md` | **格式总纲：文件头/签名/版本/StreamSplitter/TOC** | C1 ✅ 主体 |
 | `analysis/02-compress-chunk.md` | **TOC 字段语义 + 主负载切分 + Adler/Blowfish 校验** | C2 ✅ 主体 |
 | `analysis/03-model-tree.md` | **对象信封 + 类型注册表 + 节点 Schema** | C3 ✅ 主体 |
+| `analysis/04-geometry.md` | **Fragment/几何块容器/顶点索引集** | C4 ✅ 主体 |
 | `analysis/rea-extract-plan.md` | REA 提取清单（P0–P3） | 持续 |
 
 ## 实现路线
@@ -40,7 +41,11 @@ NWD 格式的分析与实现**独立于 go-dgn / go-rvt**，同级仓库。
    → `File.DecodeTree` + `nwdinfo` 树输出；夹具端到端绿
    - 未竟：FormatVersionEx 门控全档（U10）；StaticTree 空间层次（U11）；
      属性/Transform 对象解码（U9 余量）；真实样例
-4. ⬜ **M4 几何**：GeometryCompress（精度还原）+ Fragments + Shell
+4. ✅ **M4 几何（骨架落地）**：GeometryCompress 块容器（Blowfish-8B 解密）+
+   顶点集未压缩解码（i32+f32×3）+ 索引表 + Mesh 装配；
+   `File.DecodeGeometryBlocks` + `nwdinfo` mesh 输出；夹具端到端绿（立方体 8 顶点/12 三角）
+   - 未竟：位打包量化几何（U12）；块↔几何映射（U13）；Fragment 精确位义（U14）；真实样例
+5. ⬜ **M5 属性/CDA**：CommonSchemas 字段树 + PartitionProps
 5. ⬜ **M5 属性/CDA**：CommonSchemas 字段树 + PartitionProps
 
 ## 包结构

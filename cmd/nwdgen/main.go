@@ -20,6 +20,27 @@ func main() {
 	})
 	tw.End()
 
+	// GeometryCompress stream (M4): Blowfish-sealed blocks with a mesh.
+	verts := [][3]float64{
+		{0, 0, 0}, {4, 0, 0}, {4, 3, 0}, {0, 3, 0},
+		{0, 0, 2}, {4, 0, 2}, {4, 3, 2}, {0, 3, 2},
+	}
+	tris := []uint32{
+		0, 1, 2, 0, 2, 3, // bottom
+		4, 6, 5, 4, 7, 6, // top
+		0, 4, 5, 0, 5, 1, // sides
+		1, 5, 6, 1, 6, 2,
+		2, 6, 7, 2, 7, 3,
+		3, 7, 4, 3, 4, 0,
+	}
+	geomBlocks, err := nwd.BuildGeometryBlocks([][]byte{
+		nwd.EncodeVertexSet(verts),
+		nwd.EncodeIndexList(tris),
+	})
+	if err != nil {
+		panic(err)
+	}
+
 	img := nwstream.BuildSyntheticV8([]nwstream.SynthStream{
 		{
 			Name:   "LcOpNwdPartition",
@@ -32,9 +53,8 @@ func main() {
 			Compressed: true,
 		},
 		{
-			Name:       "LcOpNwdGeometryCompress",
-			Middle:     []byte("geometry-compress-blocks"),
-			Compressed: true,
+			Name:   "LcOpNwdGeometryCompress",
+			Middle: geomBlocks,
 		},
 	}, nil)
 	if _, err := os.Stdout.Write(img); err != nil {
