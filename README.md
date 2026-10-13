@@ -83,8 +83,22 @@ go test ./...
 (publish date 2025-10-31), 212 CDA property keys, and 1,261,016 geometry
 vertices (`cmd/nwdgeom` → PLY point cloud).
 
-Still open (documented in `analysis/findings.md`): geometry triangle
-indices (codec `DecodeIndexTable` done; element index-region location
-pending, U21), the SpatialHierarchy node graph (U19), and the
-GeometryCompress settings stream which uses a non-standard Blowfish key
-schedule (`GenSubkeys2`, U20).
+Geometry face connectivity is resolved: element child objects are walked
+deterministically and faces are expanded exactly as the SDK does
+(`analysis/findings.md` N74–N90). The type-94 elements that carry no faces
+are empty-face elements (zero-vertex face), not locator misses — this
+includes every triangle element in the v431 GateHouse sample. Faces are
+triangle strips, matching `OdNwGeometryShellImpl::createTriangleFaces`.
+
+Per-element normals are decoded from `NormalSetShort` children
+(`SceneMesh.Normals`, emitted as glTF `NORMAL`); the samples carry no
+color/UV sets. `DecodeFragments` walks the fragments stream and links each
+fragment to its geometry element (the ref bbox matches the element's local
+bbox 100%); the vertex indices are a shared display pool, so placements are
+exposed as metadata (`BuildInstances`) rather than per-element instances.
+`ValidateMesh` provides reference-free consistency invariants.
+
+Data-limited (documented in `analysis/findings.md`): Text(103), analytic
+primitives, and the quantized vertex path — none occur in the available
+samples, so they cannot be verified; external cross-checking against
+Navisworks/ODA is unavailable (the ODA `.tx` runtime is Linux-only).

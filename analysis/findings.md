@@ -239,3 +239,138 @@
 | **N84** | **两个真实样本均无解析基元**：元素类型直方图仅 94/95（TriangleSet/LineSet），无 103/104/105。⇒ 基元路径以合成单测验证（圆环半径/平面、圆柱顶点数/三角数、端到端 `DecodeMesh`）；样本导出不受影响（三角数不变 1,806,959）。同时导出器补齐 **LineSet→边**（MST `EdgeGroup`、glTF `PrimitiveLines`） | 观察 | 样本类型直方图；`primitives_test.go` |
 
 **交付**：`nwd/primitives.go`（`decodeCircleElement`/`decodeCylinderElement`/`circleRing` + 16 段三角化）、`elements.go`/`mesh.go` 接入 104/105、`export` 支持边。单测通过。
+
+## C21 轮（2026-10-13，面语义定案：shell 面 = 三角形带，非扇形）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N85** | **`OdNwGeometryShellImpl::createTriangleFaces@0x10e1776`：shell 的每个面按“三角形带（strip）滚动窗口”展开，而非扇形（fan）**。字段：`+0x58`=verticesPerLine（`setVerticesCountPerFace` 写入）、`+0x60`=indexesPerLine（`setIndexes` 写入）。算法：设面顶点 `p[0..n-1]`（`n<3` 跳过），对 `k=0..n-3` 发射三角 `T_k`；用三槽 `(s0,s1,s2)` 滚动：偶数 `k` → `(p[k],p[k+1],p[k+2])`，奇数 `k` → `(p[k+1],p[k],p[k+2])`（即每步将新顶点写入交替槽位，等价 GL 三角带展开，相邻三角绕序相反）。四边形 = `(p0,p1,p2),(p2,p1,p3)`；五边形 = `(p0,p1,p2),(p2,p1,p3),(p2,p3,p4)`。相邻两条面/带边共享，非扇形共用 p0 | 观察 | E2 createTriangleFaces@0x10e1776（槽写入 `movw %dx,-0x32(%rbp,%rax,2)`，`rax=ee` 0/1 交替）；getTriangles@0x10e16f0 经 `std::function` 语法调用；draw lambda@0x10e0a08 逐三角 push 3 索引 + `odgiFaceNormal(...,3,...)` 佐证输出为三角 |
+| **N86** | **扇→带修正已落地**：`nwd/faces.go` 新增 `StripTriangles`（可单测），`nwd/mesh.go` 的 94/104/105 分支改用它。两者每面三角数同为 `n-2`，故三角总数不变（BCCCH 1,806,959），仅四边形/多边形的对角线选择与绕序由“扇形”改为“带”（对齐 SDK）。`faces_test.go:TestStripTriangles`、`real_test.go:TestRealMesh` 通过 | 观察（实现） | `nwd/faces.go`/`nwd/mesh.go` |
+
+**说明**：C19 曾以“扇形三角化”直出；N85 表明 SDK 权威展开是三角带，四边形以上面的对角线选择与绕序均不同（凸平面场景覆盖面积相同，非平面则不同）。此项关闭复盘中“大多边形语义未证实（polygon/strip/fan、绕序）”的疑问。
+
+## C22 轮（2026-10-13，战役 A：元素子对象文法 + 确定性遍历；“47%/GateHouse 0”归因）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N87** | **元素子对象为“按位次的 4 个信封”**：`TriangleSetElementReader::readElement@0xc2c1ea` 依次 `readObject` 期望类型 60 VertexSet / 61 TexCoordSet / 0 NormalSet / 58 ColorSet；**缺失者写为 marker=0 的空信封（4 字节）**。之后 `readVertexesPerLine` → **align4** → `readIndexesPerLine`。压缩标志来自 `OdNwGeometryCompressSettings`（`getGeometry{Lengths,Indices,Color,Normal,TexCoord}Compressed` 与 `get*PrecisionReducedFlags`），即 U20 的设置流 | 观察 | E2 readElement@0xc2c1ea；各子 reader |
+| **N88** | **子对象负载文法**（反汇编）：VertexSet(60)=`[i32 vc][i32 fc][fc×f32]`（`fc<3·vc` 时随索引表，N71）；TexCoordSet(61)=`[i32 n][n×(f32,f32)]`（@0xc29ad0，压缩变体存在）；NormalSetFloat(59)=`[i32 n][n×(f32,f32,f32)]`（@0xc22926）；ColorSet(58) 未压缩=`[i32 a][i32 n][n×u32]`+align4（@0xc201b4，压缩为位打包+`getGeometryColorCompressed`）；**NormalSetShort(100) 压缩**（@0xc222e4）=`[i32 n][i32 unique][readBits(flags=[F,F,F,0], count=unique, stride=3·unique)][unique<n 时 n 项索引表]`，`F`=`getNormalsPrecisionReducedFlags`（0/>15 时默认 16）。**实测 unique=0 合法**（所有法线共享一值，位流为空、索引表承载游程，如 BCCCH 元素0：n=687、unique=0、687 字节 0xd4） | 观察 | E2 各 reader；样本元素0 |
+| **N89** | **确定性遍历落地并验证等价**：新增 `nwd/subobjects.go`（`readEnvelope` + `childOptions` 组合式遍历 + 各 `skip*` + `locateFacesDeterministic`），`DecodeElements` 改用它为主、`locateFaceArrays` 兜底。在 BCCCH **全部 14528** 个带 VertexSet 的 type-94 元素上，与旧边界锚定扫描**逐元素面数组完全一致**（`differ=0`，`real_test.go:TestElementWalkDeterministic`）⇒ 旧扫描的“低概率误匹配”风险由此排除 | 观察（实现） | `nwd/subobjects.go`；`nwd/elements.go` |
+| **N90** | **“47% / GateHouse 0”归因：非定位器缺陷，而是空面表元素**。BCCCH 带 VertexSet 的 type-94 元素 16097：**有面 7649**、**空面候选 6726**（其元素尾 4 字节=0，即 `[i32 n=0]` 空索引表；尾部实测如 `01 00 00 00 04 00 00 00 01 00 00 00 00 00 00 40 00 00 00 00` ⇒ 单条“0 顶点面”⇒ 不产三角）。**GateHouse v431 的 17 个 type-94 元素全部为空面**（尾 4 字节全 0，结构同上）⇒ **v431“面数组 0 命中”是真实数据无三角面**，非解码失败。两样本的“未解释面”由此基本解释 | 观察（实现） | 样本；`TestElementWalkDeterministic`（face-bearing=7649、emptyFace=6726、agree=14528） |
+
+**战役 A 收口**：子对象文法（N87/N88）与确定性遍历（N89）落地；复盘中“面数组启发式非确定性”“BCCCH 53% 未解释”“GateHouse 0 命中”“低概率误匹配”四项**关闭或归因**。剩余（非子对象问题）：量化顶点路径的真实样本验证、Text/基元、以及**若后续发现空面元素应含面**则需复查（当前证据支持为空面）。
+
+## C23 轮（2026-10-13，战役 D 首项：元素属性存在性与法线解码）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N91** | **两真实样本的元素仅有 NormalSetShort，无颜色/UV 集**。BCCCH 带 VertexSet 的 type-94 元素子对象序列直方图：`[nil·TexCoord, NormalShort(100), nil·Color]` 8470 例；**无任何 ColorSet(58)/TexCoordSet(61)/NormalSetFloat(59)**。GateHouse 同：`[0 100 0]` 15 例。⇒ 复盘“逐元素法线/颜色/UV 缺失 → 材质/颜色丢失”中，**颜色/UV 在这两个样本里本就不存在**（非解码器缺失）；材质/颜色须来自 Material/Fragments 层（战役 C） | 观察 | 样本子对象直方图；`TestElementWalkDeterministic` |
+| **N92** | **NormalSetShort(100) 值重建定案**：`getNormalComponentsFromBitsArray@0xc221bd` 仅取 `bitsArray[3·idx..+2]`（3 个连续 u16）；`readNormals@0xc222e4` 将每个分量左移 `(16−F)` 得 16 位有符号值（`movswl`），组向量后归一化；`F`（`getNormalsPrecisionReducedFlags`）由**端锚定遍历**唯一确定（不同 F 改变位流长度从而改变落点）。`unique==0` 时位流为空、全为“空法线”（零向量） | 观察 | E2 @0xc221bd/@0xc222e4；`decodeNormalShort` |
+| **N93** | **真实法线落地**：`nwd/subobjects.go:decodeNormalShort` + `locateFacesDeterministic` 带回法线；`ElementGeometry.Normals`。BCCCH 实测 **7649 个元素带法线、共 1,201,569 条、其中 688,526 条非零且均为单位向量**（`TestElementNormals`、`TestDecodeNormalShort`）⇒ 导出可用真实逐顶点法线替代计算平滑法线 | 观察（实现） | `nwd/subobjects.go`/`elements.go` |
+
+**战役 D 状态**：法线 ✅（N92/N93）；颜色/UV 受样本数据限制（N91），非解码缺口；材质需随战役 C（MaterialElement/Fragments）一并解决。
+
+## C24 轮（2026-10-13，战役 D：法线接入导出，端到端）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N94** | **逐顶点法线接入场景网格与导出**：`SceneMesh.Normals`（与顶点池对齐）；`DecodeMesh` 按元素填充；`export.meshNormals` 优先用网格自带法线（空法线以计算平滑法线补全），仅当无法线时才全量计算。glTF NORMAL 访问器由此来自 SDK 解出的真实法线而非计算值。BCCCH 端到端：`nwdexport` 产出 `POSITION`/`NORMAL`（count=1,354,667，bbox 981×854×39 m 不变）；`TestWriteGLTFUsesMeshNormals` 断言导出写回即网格法线 | 观察（实现） | `nwd/mesh.go`/`export/export.go`；`nwd/real_test.go:TestElementNormals` |
+
+**战役 D 收口**：法线（N92/N93/N94）端到端 ✅；颜色/UV 受样本数据限制（N91），非解码缺口；材质归入战役 C。
+
+## C25 轮（2026-10-13，战役 C 起步：Fragments 流结构）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N95** | **`LcOpNwdFragments` = `[u32 count][envelope(≥100, typeID=13 OdNwFragment)…]`**，扁平对象流。实测 BCCCH：**count=49766**，首记录 `marker=100/typeID=13`，其后 `[align8] f64 traversableScale=1.0, u32 traversableTris=4, u32 flags=8, u32 fragmentFlags=256, [align8] readObject(transform 14–17 或 geomref 93), …RunPath/版本门控尾字段`。字段序与 `OdNwFragmentReader::readElement@0xc5cac6`（起始 `alignPointer`→`readDouble`→`readInt32`→`readInt32`→`readInt32`→`readObject`）及 N25 一致；`fragmentFlags` 经多档 fv 掩码（0x6ffd3fff / 0x6ffd3f7f / …）归一 | 观察 | E2 @0xc5cac6；样本流头；`TestFragmentsHeader` |
+| **N96** | **Fragments 头解码落地**：`nwd/fragments.go`（`DecodeFragmentsHeader`：count + 首记录 `Scale/Tris/Flags/FragmentFlags`；`StreamFragments` 常量）。BCCCH 实测 `count=49766, Scale=1.0, Tris=4, Flags=8, FragmentFlags=256`（`TestFragmentsHeader`）⇒ 实例化数据入口打开 | 观察（实现） | `nwd/fragments.go` |
+
+**战役 C 状态**：流结构与记录头定案（N95/N96）；Fragment→几何引用（transform/geomref 的 readObject 分支与 RunPath）与**逐记录遍历**、**实例变换落地**、**顶点池基准 U23 确定化**仍待后续轮次。
+
+## C26 轮（2026-10-13，战役 E（参照替代）+ U23 佐证）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N97** | **无参照自洽验证落地**：`nwd/meshstats.go:ValidateMesh` 计算索引覆盖、退化三角、边流形度。BCCCH 实测：顶点 1,354,667 / 三角 1,806,959 / **退化 13,103（0.73%）** / 引用顶点 921,503（68%）/ 边：**内部（恰好 2 面共享）2,008,513、边界 478,858、非流形 242,649** ⇒ **80.7% 的边恰好被 2 个三角共享** | 观察 | `TestMeshValidation` |
+| **N98** | **U23 顶点池基准获独立佐证**。若“累积池 + 元素相对索引”错误（如真为按 fragment 的池或绝对索引），跨元素索引将错乱 ⇒ 几何碎片化、退化率极高且几乎无边共享。实测**退化率仅 0.73%、边 2 面共享率 80.7%**，与正确网格一致。⇒ 当前池模型在真实样本上**自洽成立**（非流形 10% 符合显示网格的重叠/重复顶点特征）。外部参照（Navisworks/ODA 运行时）不可得，故以自洽不变量作为独立验证（计划 E2） | 观察（度量） | `TestMeshValidation`；N79 |
+
+**战役 E 状态**：E2（自洽不变量）✅（N97/N98）；E1（ODA/Navisworks 逐元素对拍）受运行环境限制不可得，已用不变式替代并记录。**U23 由“实测假设”升级为“自洽佐证”。**
+
+## C27 轮（2026-10-13，战役 C：Fragment 逐记录遍历 + 实例变换）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N99** | **Fragment 逐记录遍历与实例变换落地**：因记录长度版本门控、未完全走通，改用**信封重同步**（marker≥100 且 typeID=13）并以「traversableScale 合理（0..1e6）」校验，遍历整条流。BCCCH 实测 **49,689 条**（count 声明 49,766，差 77 为门控尾字段未走通所致，比例 0.15%）；其中 **26,509 条带放置变换**（ObjTransRot(15)=26,500、ObjTransRotScale(16)=9），经 `Transform.Matrix4()` 全部有限。首记录头 `Scale=1,Tris=4,Flags=8,FragmentFlags=256`（N95/N96） | 观察（实现） | `nwd/fragments.go:DecodeFragments`；`TestFragmentsWalk` |
+| **N100** | Fragment 子对象分布：约 53% 记录在头字段后带 `readObject` 变换（typeID 14–17），其余子对象布局不同（几何引用 93 或内联索引，未走通）。⇒ 实例变换已可产出（N99），**变换↔几何链接**（哪些几何被哪个 fragment 变换）仍待 | 观察 | II 分布；`TestFragmentsWalk` |
+
+**战役 C 状态**：流/头（N95/N96）+ 逐记录遍历与实例变换（N99/N100）✅；**变换↔几何链接与实例化输出**待续。
+
+## C28 轮（2026-10-13，战役 C：Fragment 头字段语义校正）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N101（校正 N99/N100）** | **`traversableTris`（f64 scale 后的 u32）= 遍历/子树三角计数（聚合量），非该 fragment 自身的三角数**。实测全部 fragment 的该字段之和 ≈ 1.97×10⁸，远大于模型总三角数 1.81×10⁶（约 109×）⇒ 系 culling/遍历聚合值。据此**收紧重同步校验**（traversableScale ∈ (0,1000]），遍历得更精确的 **47,016 条** fragment，其中 **23,839 条带放置变换**（ObjTransRot=23,830、ObjTransRotScale=9）。记录长度仍版本门控（首记录后 gap 多为 176/248B），故遍历基于信封重同步 + scale 校验 | 观察（实现） | `nwd/fragments.go`；`TestFragmentsWalk` |
+| **N102** | Fragment 子对象（`readObject`，typeID 14–17 变换）在 align8(头+20) 处；未带变换的记录其子对象偏移受版本门控字段影响 ⇒ 剩余约一半记录的**变换↔几何链接**（geomref 93 / 内联索引）未走通。⇒ 实例变换可产出（N101），**实例化输出与顶点池基准的“按 fragment”变体**仍待 | 观察 | `TestFragmentsWalk`；样本记录字节 |
+
+**战役 C 状态**：流/头（N95/N96）+ 逐记录遍历与实例变换（N99/N101）✅（校正后 47,016 / 23,839）；**变换↔几何链接、实例化输出**待续。**N99/N100 的计数被 N101 取代**。
+
+## C29 轮（2026-10-13，战役 C：fragment↔geometry 链接）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N103** | **`OdNwGraphicGeometryRef`(typeID 93) 文法**（`readElement@0xc66020` + `readUserData@0xc6607c`）：`readElement` = `readUserData()` 后 **`readUInt32` = geometry index**（`setGeomIndex`）。`readUserData` 负载 = `bbox`（2×`FPoint3d` = 2×f32×3 = 24B）→ `align8` → `userOffset`（`DVector3d` = f64×3 = 24B）→ `userScale`（f32）→ `formatVersion>4` 时 `checksum`（u32）。⇒ GeometryRef 尾部 u32 = **几何索引** | 观察 | E2 @0xc66020/@0xc6607c；样本 ref 字节 |
+| **N104** | **fragment↔geometry 链接打通**：Fragments 流中 Fragment(13) 记录后随**两个**子对象：变换（14–17）与 GeometryRef（93）。实测 93 计数 26,680；用 N103 定位几何索引，范围 **[1, 24766]**（= 几何流元素规模）⇒ 索引有效。遍历（N101/单遍重同步）得 **23,436 条 fragment 同时带变换与几何索引**（withTransform=23,839、withGeomIndex=23,845、fragments=47,016） | 观察（实现） | `nwd/fragments.go`；`TestFragmentsWalk` |
+| **N105** | 剩余约一半 fragment 的变换/索引不落在标准位次（`align8(头+20)` 与「首 93」之外），受版本门控尾字段影响 ⇒ **完整逐记录边界**与**geomIndex→几何元素序号的精确映射**（是否等于几何流元素流序）仍待；但**实例化所需的（变换, 几何索引）对已可产出** | 观察 | `TestFragmentsWalk` |
+
+**战役 C 状态**：流/头（N95/N96）+ 逐记录遍历与实例变换（N101）+ **fragment↔geometry 链接（N104）** ✅；仅剩 geomIndex→几何元素精确映射核对与实例化输出组装。
+
+## C30 轮（2026-10-13，战役 C：fragment↔geometry 映射确证 + U23 定论）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N106** | **geomIndex 为 1-based，映射确证**：GeometryRef 的 bbox（局部）与几何流第 `geomIndex−1` 个元素的 VertexSet 局部 bbox **逐一中心吻合**——平移量 `shift=−1` 时 **100.0% 匹配（15,128/15,128）**，其余 shift 仅 12–17%。⇒ **fragment→geometry 元素映射成立**：`elements[geomIndex-1]`。`FragmentRecord.GeomElementIndex()` 落地 | 观察 | `TestFragmentGeometryLink` |
+| **N107** | **U23 定论：索引为“共享/累积池”而非按元素局部**。实测含面元素 7,649 个中，原始索引落在自身顶点数内的仅 **380** 个，**7,269 个越界**（最多超出 1,106）⇒ 元素索引**不按自身顶点局部编号**，而是索引一个跨元素的共享池。⇒ 复盘中“真模型可能是按 fragment 的池”被排除，**累积池 + 元素相对偏移模型保留成立**（与 N79/N98 的边共享 80.7% 一致） | 观察 | `TestMeshValidation`；元素索引统计 |
+| **N108** | 综合：几何流 = 全局顶点池（各元素 VertexSet 依序拼接），元素持有指向该池的索引；fragment 以 `GeomIndex`（1-based）引用单个元素并用其变换放置。⇒ **实例化数据齐备**（(变换, 元素) 对 15,128+ 条），实例化输出的“元素→三角”切分需按元素基址+相对索引重组 | 观察 | N79/N98/N104/N106 |
+
+**战役 C 状态**：fragment↔geometry **映射确证（N106）**、U23 **定论（N107：累积池）**、实例数据齐备（N108）。仅剩把 (变换, 元素) 组装为实例化输出。
+
+## C31 轮（2026-10-13，战役 C 收口：实例化语义）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N109** | **NWD 为“共享显示池”，逐元素实例化不成立**。fragment 引用单个几何元素（N106）且含其局部 bbox，但**元素的面索引并非元素局部**：含面元素 7,649 个中仅 **380（5.0%）** 的索引落在自身顶点数内。⇒ fragment 的变换无法作用到“自包含的元素网格”上（同伴元素的顶点共享同一池）。⇒ **实例化以放置元数据形式暴露**（`nwd/instances.go:BuildInstances`：`(ElementIndex, Transform, LocalBBox)`，实测 **23,436 条**），而非逐元素重网格化；这与复盘结论“NWD 适合可视化级直出”一致——单一共享池网格即为正确表示 | 观察 | `TestBuildInstances`；N106/N107 |
+| **N110** | 量化顶点路径（`count<0`）**已定 grammar（N73）但当前 `decodeVertexSet` 未实现**（`vc<=0` 直接拒绝）。两真实样本均不触发该路径（v451 恒等、v431 去重池均为正 count）⇒ **无法用现有样本验证**，实现将不可证伪，故**暂不落地**，列为数据受限项 | 观察 | `nwd/elements.go`；样本 |
+
+**战役 C 收口**：fragment 流/头（N95/N96）、逐记录遍历与变换（N99/N101）、fragment↔geometry 映射（N104/N106）、U23 定论（N107）、实例化语义（N109）**全部定案**。战役 C 完成（实例化以元数据交付；共享池下无可重网格化的“实例”）。
+
+## C32 轮（2026-10-13，能力面收口：CLI 暴露 + 数据核查）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N111** | `cmd/nwdinfo` 增补两节：`fragments`（N95–N109：条数/带变换/带几何索引）与 `validation`（N97/N98 网格不变量）。BCCCH 实测 `fragments={47016,23839,23845}`、`validation` 与 N97 一致 ⇒ 新能力（确定性遍历/法线/片段/校验）经 CLI 可达 | 观察（实现） | `cmd/nwdinfo/main.go` |
+| **N112** | **本地无其他 NWD/NWC/NWF 样本**（`go-nwd`、`go-dgn`、Downloads、Desktop 仅两份 testdata）。⇒ 战役 F（Text(103)、解析基元、量化顶点路径）所需的触发样本不可得，**确认为样本数据受限**；ODA 运行时为 Linux ELF，macOS 无法执行，E1 外部对拍亦不可得 | 观察 | 文件系统核查 |
+
+**收口状态**：复盘“达到完美所需”五项中 ①②③④⑤ 均已在可得证据内完成（② 以共享池下的实例元数据交付；⑤ 以自洽不变式替代，外部对拍受环境限制）。剩余仅 F 项，**受样本缺失制约**，需业务侧提供含 Text/解析基元/量化顶点的 NWD。
+
+## C33 轮（2026-10-13，战役 D 补齐：MST 亦用真实法线）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N113** | MST 导出改用网格自带逐顶点法线（`MeshNode.Normals = meshNormals(m)`；无则回退 `ReComputeNormal`），与 glTF 一致 ⇒ **法线保真在两种导出格式均落地**。`TestWriteMSTUsesMeshNormals` 断言写入即网格法线（(0,-1,0)）；BCCCH 端到端 MST 写出（54MB，单实例） | 观察（实现） | `export/export.go`；`export_test.go` |
+
+**战役 D 完成**：法线在 MST/glTF 端到端保真（N92–N94/N113）；颜色/UV 受样本数据缺失（N91）。
+
+## C34 轮（2026-10-13，CLI 几何节更新为新解码器）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N114** | `nwdinfo` 的 `geometry` 节改用确定性元素/网格解码器（原用 `LcOpNwdGeometryCompress` 点云路径）。BCCCH 实测：`elements=24766, face_elements=7649, faces=324108, vertices=1354667`（与 findings 台账一致）⇒ CLI 与库解码路径统一 | 观察（实现） | `cmd/nwdinfo/main.go` |
+
+## C35 轮（2026-10-13，战役 F：Text(103) 实现）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N115** | **Text(103) 文法与解码落地**：`OdNwGraphicTextElementReader::readElement@0xc316f4` = `readString<0>`（i32 长度 + UTF-8 + 补 4）→ f32 `xScale`,`yScale`,`rotateAngle` → f32×3 `rotateAxis` → f32×3 `leftPoint` → f32×3 `rightPoint` → i32 `fontId`。新增 `nwd/text.go:decodeTextElement` + `ElementGeometry.Text`；`DecodeElements` 纳入 103。合成单测 `TestDecodeTextElement` 通过（字段、字符串、fontId 端到端） | 观察（实现） | E2 @0xc316f4；`nwd/text.go`；`text_test.go` |
+| **N116** | Text 为元数据元素（无三角，需字体轮廓化）；两真实样本不含（N84），故以合成元素验证文法。⇒ 战役 F 的 **Text(103) 关闭**（文法+解码+合成测试） | 观察 | `TestDecodeTextElement` |
+
+**战役 F 状态**：Text(103) ✅（N115/N116，合成验证）；解析基元 Circle/Cylinder 已合成验证（N83/N84）；剩余仅**量化顶点路径**（grammar 已定 N73，样本不触发，实现不可证伪）。
