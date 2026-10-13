@@ -25,6 +25,7 @@ v8), built from reverse-engineering the ODA BimNv `TNW_Db.tx` module.
 - `nwd/` — 公共 API：`Detect` / `Open` / `Metadata` / `DecodeTree` /
   `DecodeGeometryBlocks` / `DecodeSchemas` / `BuildScene` / 对象信封
 - `internal/nwstream/` — 签名 + StreamSplitter 容器（v8 footer/TOC/校验）
+- `internal/blowfish/` — 自包含 Blowfish 实现（仅用于兼容 NWD 内置密钥封存）
 - `internal/nwio/` — 小端字节读取原语
 - `cmd/nwdinfo` — JSON 转储 CLI（分区树 / 网格 / schema / 场景）
 - `cmd/nwdgen` — 合成 v8 夹具生成器（调试/演示用）

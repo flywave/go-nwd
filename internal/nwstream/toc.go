@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"golang.org/x/crypto/blowfish"
+	"github.com/flywave/go-nwd/internal/blowfish"
 )
 
 // adler32Update is the incremental Adler-32 step (mod 65521), matching

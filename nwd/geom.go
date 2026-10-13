@@ -6,7 +6,7 @@ import (
 	"hash/adler32"
 	"math"
 
-	"golang.org/x/crypto/blowfish"
+	"github.com/flywave/go-nwd/internal/blowfish"
 )
 
 // sGeometryCompressKey is the fixed 32-byte Blowfish key protecting the
