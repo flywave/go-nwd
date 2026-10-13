@@ -142,7 +142,7 @@
 | U18 | 真实属性类型 payload 全表 | P0 | M3/M5 收口 | ✅ PublishAttribute 定案（N56）；余 70/76/79/86/88/180 同基类 |
 | U19 | 完整模型树（SpatialHierarchy 索引 → 节点层级） | P1 | M3 收口 | 🔶 结构观察（N62：[count,index] 记录引 Partition item）；完整文法待 |
 | U20 | GeometryCompress 设置来源 | P1 | M4 收口 | 🔶 GenSubkeys2=标准 Blowfish（N64）；40B 非设置明文，来源待 |
-| U21 | 几何三角索引：codec 已定（N58 `DecodeIndexTable`）；**元素内索引区定位**（嵌套集尺寸 + 压缩标志）待 | P1 | M4 收口 | 🔶 codec 落地（N58/N61） |
+| U21 | 几何三角索引：codec 已定（N58）；元素内索引区**无法精确落位**（N66 块0 零候选） | P1 | M4 收口 | 🔶 codec 落地；组合未收敛 |
 | U22 | GeometryCompress 流实为 40B（本样本）之语义（是否空/占位） | P2 | M4 | 开 |
 
 ## C11 轮（2026-10-13，残余任务结构定案）
@@ -164,3 +164,10 @@
 | **N65** | 元素索引/每面顶点数数组**非简单原始 u16**：对真实块0（0..9640）按 `[i32 count][count×u16]` 精确落位搜索失败 ⇒ 走**表压缩路径**（`readIndexTable` 等，N58）；数组定位需 `readVertexesPerLine/readIndexesPerLine` 头部字段 + 压缩标志 | 观察（部分） | 样本 Geometry 块0 |
 
 **取舍**：U20/U21 尾项依赖「几何压缩设置来源」与「元素数组头部文法」，二者互为前置且未收敛；不交付推测解码器。
+
+## C13 轮（2026-10-13，U21 收口尝试 + topo 对接）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N66** | **元素索引区在真实块上无法精确落位**：对真实块0（0..9640，vc=687）以 `readIndexTable` codec 做「精确落在块尾」搜索得 **0 个候选**；宽松容差（landing ≤7B）得 7731/24765 但疑为巧合。⇒ 元素组合（4×readObject 的嵌套集尺寸 + `readVertexesPerLine/readIndexesPerLine` 头部文法，且依赖不可恢复的 GeometryCompressSettings）**仍未收敛** | 观察（部分） | 样本 Geometry；U21 |
+| **N67** | **go-topo 对接落地**：新增 `go-topo/nwd.go`（NwdReader/NwdElement）——LineSet(95)→边复合 Shape（精确）；TriangleSet(94)→顶点+BBox（三角面待 U21，`SetTriangleSoup` 尽力而为）；`cmd/nwd2mesh` 导出 STEP（5.9MB/83954 实体）与二进制 STL（三角形汤 154292 面/7.4MB）；真实样本测试 `nwd_test.go` 通过 | 观察（实现） | go-topo |
