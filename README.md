@@ -75,3 +75,16 @@ go test ./...
 
 同 go-dgn / go-rvt：观察/推断/未知三态；E1=头文件、E2=二进制静态分析
 （符号@地址）、E3=样例实测。结论台账见 `analysis/findings.md`（N 系列）。
+
+## Real-file status (BCCCH BIM, 25.7 MB)
+
+`nwdinfo` on the real model yields: 27 streams, partition root
+(`LcOaPartition`), partition object graph with PublishAttribute
+(publish date 2025-10-31), 212 CDA property keys, and 1,261,016 geometry
+vertices (`cmd/nwdgeom` → PLY point cloud).
+
+Still open (documented in `analysis/findings.md`): geometry triangle
+indices (codec `DecodeIndexTable` done; element index-region location
+pending, U21), the SpatialHierarchy node graph (U19), and the
+GeometryCompress settings stream which uses a non-standard Blowfish key
+schedule (`GenSubkeys2`, U20).

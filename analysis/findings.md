@@ -140,7 +140,18 @@
 | U16 | PropertyAttribute 嵌套值编码 + PartitionProps 块↔节点映射 | P1 | M5 收口 | 开 |
 | U17 | ObjMatrix(17) 元素数（12/16）与排列 | P2 | M6 收口 | 开 |
 | U18 | 真实属性类型 payload 全表 | P0 | M3/M5 收口 | ✅ PublishAttribute 定案（N56）；余 70/76/79/86/88/180 同基类 |
-| U19 | 完整模型树（SpatialHierarchy 索引 → 节点层级） | P0 | M3 收口 | 🔶 Partition 根+属性已解（N57/N59）；Spatial 层级待 |
-| U20 | GeometryCompress 几何块容器（Blowfish 8B，块表校验）与 Geometry 流真实内容 | P0 | M4 收口 | 🔶 Geometry 流顶点已解（N47/N48）；索引量化 → U21 |
-| U21 | 几何三角索引：codec 已定（N58 `DecodeIndexTable`）；**元素内索引区定位**（嵌套 Normal/Color 集尺寸）待 | P0 | M4 收口 | 🔶 codec 落地 |
+| U19 | 完整模型树（SpatialHierarchy 索引 → 节点层级） | P1 | M3 收口 | 🔶 结构观察（N62：[count,index] 记录引 Partition item）；完整文法待 |
+| U20 | GeometryCompress 设置流（GenSubkeys2 非标准密钥编排） | P1 | M4 收口 | 🔶 密钥编排为非标准 Blowfish（N63）；设置解码待 |
+| U21 | 几何三角索引：codec 已定（N58 `DecodeIndexTable`）；**元素内索引区定位**（嵌套集尺寸 + 压缩标志）待 | P1 | M4 收口 | 🔶 codec 落地（N58/N61） |
 | U22 | GeometryCompress 流实为 40B（本样本）之语义（是否空/占位） | P2 | M4 | 开 |
+
+## C11 轮（2026-10-13，残余任务结构定案）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N60** | `NormalSetShort(100)` = `[i32 -count][i32 flags][count × i8]`（量化法线，1 字节/法线；实测 count=-687，686 字节 0xd4 游程） | 观察 | 样本 Geometry 块 8272..8976 |
+| **N61** | `TriangleSetElement(94)` read 顺序：`4×readObject`（Vertex/Normal/TexCoord/Color 集，缺失为 nil 标记）→ `readVertexesPerLine(u16 每面顶点数)` → `readIndexesPerLine(u16 索引，表压缩)` → `validateIndices`。索引区定位依赖 GeometryCompressSettings 的压缩标志（U20）+ 各嵌套集精确尺寸 | 观察 | E2 TriangleSetElementReader@0xc2c1ea |
+| **N62** | `SpatialHierarchy`（484KB）= 头部小整数（5/7/5/4…）+ `[u32 count][u32 index]` 记录（如 `1,24113`），引用 Partition 树的 item（`SpatialHierarchyStreamLoader::parseStream` → `PartitionStreamLoader::getTreeItem`）；完整层级待展开（U11/U19 尾） | 观察 | 样本 SpatialHierarchy 头；E2 @0xcff23c |
+| **N63** | GeometryCompress 使用 **`NwBlowfish::GenSubkeys2`（非标准密钥编排：按键字节求和填充）**，非标准 Blowfish；故 40B 设置流的标准 Blowfish 解密失败 → 几何压缩设置（坐标/颜色精度、indices/lengths 压缩位）仍待（U20/U22） | 观察 | E2 GenSubkeys2@0xbcdddc |
+
+**残余任务结论**：U21 元素内索引区定位、U19 Spatial 完整层级、U20 几何压缩设置三项均需进一步深度逆向（GenSubkeys2 状态机、嵌套集尺寸解析、Spatial 记录文法），收敛不确定；现有交付（容器/流/根/属性/顶点/索引 codec）已覆盖真实文件的主要可读信息。
