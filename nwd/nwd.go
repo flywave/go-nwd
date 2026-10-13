@@ -196,6 +196,17 @@ func (f *File) DecodePartitionRoot(i int) (*PartitionRoot, error) {
 	return DecodePartitionRoot(data)
 }
 
+// ScanStreamNames inflates stream i and extracts every Name object
+// (property keys / class names) via the self-describing envelope markers
+// (findings N44). Diagnostic extraction; see ScanNames for limitations.
+func (f *File) ScanStreamNames(i int, limit int) ([]NameRecord, error) {
+	data, err := f.c.StreamData(i)
+	if err != nil {
+		return nil, err
+	}
+	return ScanNames(data, limit), nil
+}
+
 // OpenFile reads path and returns its metadata.
 func OpenFile(path string) (*Metadata, error) {
 	buf, err := os.ReadFile(path)

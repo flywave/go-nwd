@@ -33,6 +33,7 @@ func main() {
 		Mesh          *nwd.Mesh          `json:"mesh,omitempty"`
 		Schemas       []nwd.Schema       `json:"schemas,omitempty"`
 		Scene         *nwd.Scene         `json:"scene,omitempty"`
+		PropertyNames []nwd.NameRecord   `json:"property_names,omitempty"`
 	}{Metadata: f.Metadata}
 
 	if idx := f.StreamByName("LcOpNwdPartition"); idx >= 0 {
@@ -72,6 +73,13 @@ func main() {
 	// Assemble a flat scene from the tree + mesh (M6).
 	if out.Tree != nil {
 		out.Scene = nwd.BuildScene(out.Tree, out.Mesh)
+	}
+
+	// Extract property keys from the CDA property stream (best-effort).
+	if idx := f.StreamByName("LcOaPartitionProps"); idx >= 0 {
+		if names, err := f.ScanStreamNames(idx, 4000); err == nil && len(names) > 0 {
+			out.PropertyNames = names
+		}
 	}
 
 	enc := json.NewEncoder(os.Stdout)

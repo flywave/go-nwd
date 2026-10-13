@@ -99,14 +99,31 @@ attrCount` 与 M3 推断完全一致 ⇒ M3 结构在真实文件上验证通过
 - 与 E2 reader 的 `flags+4串+align8+2时间+4串+explicitName` **未对齐**，
   需按真实字节继续定案（属性基类 ModelBase 是否出现待确认）
 
-## §5 后续（样本已解锁）
+## §5 真实流分类（N44–N46）与属性键提取
+
+| 流 | 内容 |
+|---|---|
+| Partition | 根节点对象（5 信封：PartitionNode/Name/PublishAttr/DistantLight×2） |
+| PartitionProps | PropertyAttribute(86) 对象流（含真实属性键） |
+| SpatialHierarchy | 紧凑整数对索引（非信封） |
+| LogicalHierarchy | 整数列表索引 |
+| Fragments | 计数 + 记录（假想：49766） |
+| CommonSchemas | 真实为 8 字节（空 schema 列表） |
+
+**属性键提取（`File.ScanStreamNames` / `nwdinfo` → `property_names`）**：
+利用 `marker=100+slot` 自描述 + 向后重同步，在真实 PartitionProps 上提取
+**212 个 Name 对象**，例：
+`Location/LcRevitPropertyLocation`、`Latitude/revit_Latitude`、`Longitude`、
+`Elevation`、`Timezone`、`ProjectLocation`、`Identity/LcOaSceneIdentity`、
+`Element ID/LcRevitId`、`Category`、`lcldrevit_parameter_Center Radius`…
+
+## §5b 后续（样本已解锁）
 
 | 项 | 内容 |
 |---|---|
-| U18 | 真实属性类型 payload 全表（PublishAttribute 92 已探：flags+6 串+2 时间+…） |
-| U19 | Partition 完整对象图（attrs 序列、子节点、变换） |
+| U18 | 属性 payload 精确字段序（PublishAttribute/PropertyAttribute 基类 ModelBase 处理） |
+| U19 | Partition/Spatial 完整对象图（attrs 序列、子节点、变换） |
 | U20 | GeometryCompress 几何块（Blowfish 8B）与 Geometry 流真实内容 |
-| U15/U16 | CommonSchemas（11B 真实流）与 PartitionProps 真实布局 |
 
 ## §6 实现状态
 

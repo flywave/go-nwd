@@ -84,6 +84,9 @@
 | N41 | 真实 Partition 根的 attrCount=1，属性为 **PublishAttribute(92)**（payload=flags+6 字符串+2 时间+…）；其后续属性/子节点解码为下一步 | 观察（部分） | 样本；E2 PublishAttributeReader@0xc58ffa |
 | **N42** | 真实 Partition 根解码成功：`userName="BCCCH_BIM Coordination Model_251024.nwd"`、`className="LcOaPartition"`、`displayName="File"`、`modelType=0`、`flags=0`、`guidIndex=0`、`attrCount=1`、首属性 typeID=**92**（PublishAttribute）。根头字段序（marker/typeID/modelType/ModelBase[userName,Name]/flags/guid/attrCount）**与 M3 推断一致** | 观察 | 样本 Partition 744B；`File.DecodePartitionRoot` |
 | N43 | **PublishAttribute(92) payload 实测 72B**（112→184）：首 i32=`0xffffffff`，随后含 i64 时间戳 `0x69043fda`（Unix 2025‑10‑24，与文件名日期吻合）；字段序与 E2 reader（flags+4串+align8+2时间+4串+explicitName）**未对齐**，需按真实字节继续定案 | 观察（部分） | 样本偏移 112–184；U18 |
+| **N44** | **对象索引自描述**：`marker = 100 + slot`；据此可在真实流中顺序定位信封（配合向后重同步）。`ScanNames` 在真实 `PartitionProps`（1.9MB，`PropertyAttribute` 流）上提取 **212 个 Name 对象**（属性键） | 观察 | 样本 PartitionProps；`nwd/attrscan.go` |
+| **N45** | 真实属性键例（PartitionProps）：`Location/LcRevitPropertyLocation`、`Latitude/revit_Latitude`、`Longitude`、`Elevation`、`Timezone`、`ProjectLocation`、`Identity/LcOaSceneIdentity`、`Element ID/LcRevitId`、`Category`、`lcldrevit_parameter_Center Radius`… ⇒ 客户端 CDA 属性面可直接枚举 | 观察 | 样本；`File.ScanStreamNames` |
+| N46 | 真实流分类：`Partition`=根节点（仅 5 信封：PartitionNode/Name/PublishAttr/DistantLight×2）；`PartitionProps`=PropertyAttribute 对象流；`SpatialHierarchy`=紧凑整数对索引（非信封）；`LogicalHierarchy`=整数列表；`Fragments`=计数 49766 + 记录 | 观察 | 样本各流头 |
 
 **样本校正实现状态**：容器层（M1/M2）在真实 25.7MB 文件上**全量通过**（27 流清单、偏移/尺寸、26 流 zlib inflate）；golden 测试见 `nwd/real_test.go`。
 

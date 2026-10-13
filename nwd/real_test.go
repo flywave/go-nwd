@@ -137,3 +137,31 @@ func TestRealPartitionRoot(t *testing.T) {
 		t.Errorf("attr_count=%d first_attr=%d want 1/92", root.AttrCount, root.FirstAttrType)
 	}
 }
+
+func TestRealPropertyNames(t *testing.T) {
+	f := openReal(t)
+	pi := f.StreamByName("LcOaPartitionProps")
+	if pi < 0 {
+		t.Fatal("PartitionProps stream not found")
+	}
+	names, err := f.ScanStreamNames(pi, 4000)
+	if err != nil {
+		t.Fatalf("ScanStreamNames: %v", err)
+	}
+	if len(names) < 100 {
+		t.Fatalf("extracted %d names, want >=100", len(names))
+	}
+	found := map[string]bool{}
+	for _, n := range names {
+		found[n.Name] = true
+	}
+	for _, want := range []string{
+		"revit_Latitude", "revit_Longitude", "revit_Elevation",
+		"LcRevitPropertyLocation", "LcOaSceneIdentity",
+		"lcldrevit_parameter_Center Radius",
+	} {
+		if !found[want] {
+			t.Errorf("missing property name %q", want)
+		}
+	}
+}
