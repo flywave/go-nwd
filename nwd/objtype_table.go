@@ -4,49 +4,49 @@ package nwd
 // Extracted from TNW_Db.tx registerObjectReaders GOT relocations (E2,
 // findings N20): 110 of 201 slots registered.
 var objTypeNames = map[int]string{
-	1: "OdNwStaticTreeGroup",
-	2: "OdNwStaticTreeLeaf",
-	13: "OdNwFragment",
-	14: "OdNwObjTranslation",
-	15: "OdNwObjTransRot",
-	16: "OdNwObjTransRotScale",
-	17: "OdNwObjMatrix",
-	22: "OdNwGeometryModelItemNode",
-	27: "OdNwDistantLight",
-	28: "OdNwPointLight",
-	29: "OdNwSpotLight",
-	31: "OdNwMaterialAttribute",
-	32: "OdNwPartitionNode",
-	39: "OdNwTransformAttribute",
-	40: "OdNwTransAttribute",
-	41: "OdNwTransRotationAttribute",
-	52: "OdNwName",
-	53: "OdNwGroupModelItemNode",
-	54: "OdNwGraphicMaterial",
-	55: "OdNwGraphicAppearance",
-	58: "OdNwGraphicColorSet",
-	59: "OdNwGraphicNormalSetFloat",
-	60: "OdNwGraphicVertexSet",
-	61: "OdNwGraphicTexCoordSet",
-	62: "OdNwGraphicTriangleSet",
-	66: "OdNwUInt64Attribute",
-	70: "OdNwNameAttribute",
-	72: "OdNwObjTransDynamic",
-	73: "OdNwRunPath",
-	76: "OdNwTextAttribute",
-	79: "OdNwURLAttribute",
-	80: "OdNwGraphicPointSet",
-	81: "OdNwGraphicLineSet",
-	86: "OdNwPropertyAttribute",
-	88: "OdNwBinaryAttribute",
-	89: "OdNwElementRecord",
-	92: "OdNwPublishAttribute",
-	93: "OdNwGraphicGeometryRef",
-	94: "OdNwGraphicTriangleSetElement",
-	95: "OdNwGraphicLineSetElement",
-	96: "OdNwGraphicPointSetElement",
-	97: "OdNwPresenterMaterialAttribute",
-	98: "OdNwPresenterTextureSpaceAttribute",
+	1:   "OdNwStaticTreeGroup",
+	2:   "OdNwStaticTreeLeaf",
+	13:  "OdNwFragment",
+	14:  "OdNwObjTranslation",
+	15:  "OdNwObjTransRot",
+	16:  "OdNwObjTransRotScale",
+	17:  "OdNwObjMatrix",
+	22:  "OdNwGeometryModelItemNode",
+	27:  "OdNwDistantLight",
+	28:  "OdNwPointLight",
+	29:  "OdNwSpotLight",
+	31:  "OdNwMaterialAttribute",
+	32:  "OdNwPartitionNode",
+	39:  "OdNwTransformAttribute",
+	40:  "OdNwTransAttribute",
+	41:  "OdNwTransRotationAttribute",
+	52:  "OdNwName",
+	53:  "OdNwGroupModelItemNode",
+	54:  "OdNwGraphicMaterial",
+	55:  "OdNwGraphicAppearance",
+	58:  "OdNwGraphicColorSet",
+	59:  "OdNwGraphicNormalSetFloat",
+	60:  "OdNwGraphicVertexSet",
+	61:  "OdNwGraphicTexCoordSet",
+	62:  "OdNwGraphicTriangleSet",
+	66:  "OdNwUInt64Attribute",
+	70:  "OdNwNameAttribute",
+	72:  "OdNwObjTransDynamic",
+	73:  "OdNwRunPath",
+	76:  "OdNwTextAttribute",
+	79:  "OdNwURLAttribute",
+	80:  "OdNwGraphicPointSet",
+	81:  "OdNwGraphicLineSet",
+	86:  "OdNwPropertyAttribute",
+	88:  "OdNwBinaryAttribute",
+	89:  "OdNwElementRecord",
+	92:  "OdNwPublishAttribute",
+	93:  "OdNwGraphicGeometryRef",
+	94:  "OdNwGraphicTriangleSetElement",
+	95:  "OdNwGraphicLineSetElement",
+	96:  "OdNwGraphicPointSetElement",
+	97:  "OdNwPresenterMaterialAttribute",
+	98:  "OdNwPresenterTextureSpaceAttribute",
 	100: "OdNwGraphicNormalSetShort",
 	102: "OdNwTextStyle",
 	103: "OdNwGraphicTextElement",
@@ -122,19 +122,19 @@ func ObjTypeName(id int) string { return objTypeNames[id] }
 
 // Known object type IDs used by the model-tree layer (findings N20).
 const (
-	TypeStaticTreeGroup      = 1
-	TypeStaticTreeLeaf       = 2
-	TypeFragment             = 13
-	TypeGeometryModelItem    = 22
-	TypePartitionNode        = 32
-	TypeName                 = 52
-	TypeGroupModelItemNode   = 53
-	TypeElementRecord        = 89
+	TypeStaticTreeGroup    = 1
+	TypeStaticTreeLeaf     = 2
+	TypeFragment           = 13
+	TypeGeometryModelItem  = 22
+	TypePartitionNode      = 32
+	TypeName               = 52
+	TypeGroupModelItemNode = 53
+	TypeElementRecord      = 89
 )
 
 // Short aliases used by decoders.
 const (
-	PartitionNode       = TypePartitionNode
-	GroupModelItemNode  = TypeGroupModelItemNode
+	PartitionNode        = TypePartitionNode
+	GroupModelItemNode   = TypeGroupModelItemNode
 	TypePublishAttribute = 92
 )

@@ -76,6 +76,29 @@ Partition 流 inflate（744B）：
 ⇒ **M3 对象信封 + ModelBase/ModelName/ModelItem 结构在真实文件上得到验证**；
 `readString` 填充在数据之后（N37）。
 
+## §4b Partition 根解码（N42，已落地）
+
+`File.DecodePartitionRoot` 在真实文件上解出：
+
+```
+userName    = "BCCCH_BIM Coordination Model_251024.nwd"
+className   = "LcOaPartition"
+displayName = "File"
+modelType   = 0   flags = 0   guidIndex = 0
+attrCount   = 1   firstAttrType = 92 (PublishAttribute)
+```
+
+字段序 `marker(100) / typeID(32) / modelType / userName / Name(52) / flags / guid /
+attrCount` 与 M3 推断完全一致 ⇒ M3 结构在真实文件上验证通过。
+`nwdinfo` 输出 `partition_root`。
+
+## §4c PublishAttribute 部分定案（N43，U18）
+
+- payload 实测 **72 字节**（偏移 112→184）
+- 首 `i32 = 0xffffffff`；含 i64 时间戳 `0x69043fda`（Unix 2025‑10‑24）
+- 与 E2 reader 的 `flags+4串+align8+2时间+4串+explicitName` **未对齐**，
+  需按真实字节继续定案（属性基类 ModelBase 是否出现待确认）
+
 ## §5 后续（样本已解锁）
 
 | 项 | 内容 |

@@ -224,5 +224,5 @@ func appendU32(b []byte, v uint32) []byte {
 	return append(b, x[:]...)
 }
 
-func f32(b []byte) float32 { return math.Float32frombits(binary.LittleEndian.Uint32(b)) }
+func f32(b []byte) float32     { return math.Float32frombits(binary.LittleEndian.Uint32(b)) }
 func f32bits(v float32) uint32 { return math.Float32bits(v) }

@@ -9,10 +9,10 @@ import (
 type TransformKind string
 
 const (
-	TransformTranslation  TransformKind = "translation"
-	TransformTransRot     TransformKind = "translation-rotation"
+	TransformTranslation   TransformKind = "translation"
+	TransformTransRot      TransformKind = "translation-rotation"
 	TransformTransRotScale TransformKind = "translation-rotation-scale"
-	TransformMatrix       TransformKind = "matrix"
+	TransformMatrix        TransformKind = "matrix"
 )
 
 // transformKindByType maps NwObjectType IDs to transform kinds.
@@ -38,7 +38,7 @@ type Transform struct {
 	Rotation [4]float64
 	Scale    float64
 	// Matrix is a 4x4 row-major matrix for kind 17.
-	Matrix [16]float64
+	Matrix    [16]float64
 	HasMatrix bool
 }
 

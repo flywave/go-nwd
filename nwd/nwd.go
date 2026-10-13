@@ -186,6 +186,16 @@ func (f *File) DecodeSchemas(i int) ([]Schema, error) {
 	return DecodeSchemas(data)
 }
 
+// DecodePartitionRoot decodes partition stream i's root PartitionNode
+// header (M3 real-file path, findings N42).
+func (f *File) DecodePartitionRoot(i int) (*PartitionRoot, error) {
+	data, err := f.c.StreamData(i)
+	if err != nil {
+		return nil, err
+	}
+	return DecodePartitionRoot(data)
+}
+
 // OpenFile reads path and returns its metadata.
 func OpenFile(path string) (*Metadata, error) {
 	buf, err := os.ReadFile(path)

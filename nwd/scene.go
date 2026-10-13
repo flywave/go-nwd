@@ -3,11 +3,11 @@ package nwd
 // SceneInstance is one placement in the assembled scene: a tree node with
 // a world transform and an optional triangle mesh.
 type SceneInstance struct {
-	Name      string       `json:"name"`
-	Path      []string     `json:"path"`
-	Transform *Transform   `json:"transform,omitempty"`
-	Mesh      *Mesh        `json:"mesh,omitempty"`
-	HasMesh   bool         `json:"has_mesh"`
+	Name      string     `json:"name"`
+	Path      []string   `json:"path"`
+	Transform *Transform `json:"transform,omitempty"`
+	Mesh      *Mesh      `json:"mesh,omitempty"`
+	HasMesh   bool       `json:"has_mesh"`
 }
 
 // Scene is the assembled model: a flat list of instances produced by

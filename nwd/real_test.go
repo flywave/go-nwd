@@ -113,3 +113,27 @@ func TestRealStreamInflate(t *testing.T) {
 		t.Errorf("partition head=% x, want 64 00 00 00 20 00 00 00", data[:min(8, len(data))])
 	}
 }
+
+func TestRealPartitionRoot(t *testing.T) {
+	f := openReal(t)
+	pi := f.StreamByName("LcOpNwdPartition")
+	if pi < 0 {
+		t.Fatal("partition stream not found")
+	}
+	root, err := f.DecodePartitionRoot(pi)
+	if err != nil {
+		t.Fatalf("DecodePartitionRoot: %v", err)
+	}
+	if root.UserName != "BCCCH_BIM Coordination Model_251024.nwd" {
+		t.Errorf("user_name=%q", root.UserName)
+	}
+	if root.ClassName != "LcOaPartition" {
+		t.Errorf("class_name=%q", root.ClassName)
+	}
+	if root.DisplayName != "File" {
+		t.Errorf("display_name=%q", root.DisplayName)
+	}
+	if root.AttrCount != 1 || root.FirstAttrType != 92 {
+		t.Errorf("attr_count=%d first_attr=%d want 1/92", root.AttrCount, root.FirstAttrType)
+	}
+}

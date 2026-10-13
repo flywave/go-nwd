@@ -28,16 +28,20 @@ func main() {
 	}
 	out := struct {
 		*nwd.Metadata
-		Tree    *nwd.Tree    `json:"tree,omitempty"`
-		Mesh    *nwd.Mesh    `json:"mesh,omitempty"`
-		Schemas []nwd.Schema `json:"schemas,omitempty"`
-		Scene   *nwd.Scene   `json:"scene,omitempty"`
+		Tree          *nwd.Tree          `json:"tree,omitempty"`
+		PartitionRoot *nwd.PartitionRoot `json:"partition_root,omitempty"`
+		Mesh          *nwd.Mesh          `json:"mesh,omitempty"`
+		Schemas       []nwd.Schema       `json:"schemas,omitempty"`
+		Scene         *nwd.Scene         `json:"scene,omitempty"`
 	}{Metadata: f.Metadata}
 
 	if idx := f.StreamByName("LcOpNwdPartition"); idx >= 0 {
+		if root, err := f.DecodePartitionRoot(idx); err == nil {
+			out.PartitionRoot = root
+		}
 		tree, err := f.DecodeTree(idx)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "warning: partition tree:", err)
+			fmt.Fprintln(os.Stderr, "note: full tree decode:", err)
 		} else {
 			out.Tree = tree
 		}

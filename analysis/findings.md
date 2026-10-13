@@ -82,6 +82,8 @@
 | **N39** | 主负载各流：实测 **26/27 为 zlib**（魔数 `78 9c`），仅 `GeometryCompress` 非 zlib（Blowfish 几何块容器，0x03000000 位域）。bitfield 非简单压缩位（取值 0x1/0x100/0x10000/0x1000000/0x3000000，字节对齐标记）；**判定以魔数为准** | 观察 | 样本各流首字节 |
 | **N40** | Partition 流 inflate 后 = 对象信封：`marker=100`、`typeID=32`(PartitionNode)、`u32 modelType`、ModelBase[`userName`="BCCCH_BIM …nwd"、`→Name(52)` "LcOpPartition"]、`u32 flags`、`u32 guid`、`u32 attrCount`、attrs… ⇒ **M3 信封与 ModelBase/ModelItem 结构在真实文件上得到验证** | 观察 | 样本 Partition 流（744B） |
 | N41 | 真实 Partition 根的 attrCount=1，属性为 **PublishAttribute(92)**（payload=flags+6 字符串+2 时间+…）；其后续属性/子节点解码为下一步 | 观察（部分） | 样本；E2 PublishAttributeReader@0xc58ffa |
+| **N42** | 真实 Partition 根解码成功：`userName="BCCCH_BIM Coordination Model_251024.nwd"`、`className="LcOaPartition"`、`displayName="File"`、`modelType=0`、`flags=0`、`guidIndex=0`、`attrCount=1`、首属性 typeID=**92**（PublishAttribute）。根头字段序（marker/typeID/modelType/ModelBase[userName,Name]/flags/guid/attrCount）**与 M3 推断一致** | 观察 | 样本 Partition 744B；`File.DecodePartitionRoot` |
+| N43 | **PublishAttribute(92) payload 实测 72B**（112→184）：首 i32=`0xffffffff`，随后含 i64 时间戳 `0x69043fda`（Unix 2025‑10‑24，与文件名日期吻合）；字段序与 E2 reader（flags+4串+align8+2时间+4串+explicitName）**未对齐**，需按真实字节继续定案 | 观察（部分） | 样本偏移 112–184；U18 |
 
 **样本校正实现状态**：容器层（M1/M2）在真实 25.7MB 文件上**全量通过**（27 流清单、偏移/尺寸、26 流 zlib inflate）；golden 测试见 `nwd/real_test.go`。
 
