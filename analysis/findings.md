@@ -131,11 +131,11 @@
 | U7 | MultiChunk 内部负载级 chunk 表 | P2 | M4 按需 | 开（**需样本**：两真实样本均为单块模型；MultiChunk 路径未触发） |
 | U8 | 未压缩流中段内部帧格式 | P2 | M3 按需 | 开（按需；真实属性流已按对象信封解码） |
 | U9 | Partition/Hierarchy/GeometryCompress/Schemas 流内布局 | P0(P1 清单) | M3–M5 | 🔶 信封+树节点 schema 落地（N19–N22）；Geometry/Schemas 流内格式仍开 |
-| U10 | FormatVersionEx 全档位与各门控字段精确布局（>21/>214/>248/>451 分支）；版本注入点（FileInfo vs 流头） | P0 | M3 收口 | 🔶 大幅收敛（N122）：FormatVersionEx=尾块 navisworks:<N>（431/451 实测解析）；主要门控（materialJson>446、共享节点≥451、explicitName 关闭）已按真实版本落地；仅旧档位（≤202/≤248/≤30）分支需旧样本 |
-| U11 | StaticTreeGroup/Leaf（空间层次）与 Fragment 引用编码 | P1 | M4 联调 | 🔶 N120/N123：SpatialHierarchy 流=fragment 索引；StaticTree(1/2) 不在两真实样本的 LogicalHierarchy 对象流中出现（walk gap 簇中为 resync 误读）；readTreeItem 文法已反汇编（readObject + NwTreeItemType 枚举 ≤5 + u32 fragment 回调）待真实样本启用 |
+| U10 | FormatVersionEx 全档位与各门控字段精确布局（>21/>214/>248/>451 分支）；版本注入点（FileInfo vs 流头） | P0 | M3 收口 | 🔶 **数据受限收口**（N122/N125）：431/451 档主要门控已实测落地；旧档位（≤202/≤248/≤30）分支与 type 23 等无注册 reader 的对象需旧样本/Navisworks 运行时 |
+| U11 | StaticTreeGroup/Leaf（空间层次）与 Fragment 引用编码 | P1 | M4 联调 | 🔶 **数据受限收口**（N120/N123/N125）：SpatialHierarchy 流=fragment 索引；readTreeItem 文法已反汇编；StaticTree(1/2) 未在两真实样本对象流出现（BCCCH 树残差中 typeID 1 为 resync 误读），启用需含 StaticTree 的样本 |
 | U12 | 位打包量化几何（readIndexes/readBits/readIndexTable + 精度还原） | P0 | M4 收口 | 开（**需样本**：文法已定 N73，两真实样本均不触发该路径，实现不可证伪） |
 | U13 | GeometryCompress 块计数/每块精确布局 + 块↔几何索引映射 | P1 | M4 收口 | 开（**需样本**：本样本该流仅 40B 占位；几何走 Geometry 流，主线不受影响） |
-| U14 | Fragment 11 flag 位 × 8 版本门控精确字段序 | P1 | M4/M5 联调 | 🔶 逐记录遍历已用信封重同步交付（N101/N104：47,016 条、映射 100% 吻合）；完整逐字段文法需更多版本样本 |
+| U14 | Fragment 11 flag 位 × 8 版本门控精确字段序 | P1 | M4/M5 联调 | 🔶 **数据受限收口**（N101/N104）：逐记录遍历以信封重同步交付（47,016 条、fragment↔geometry 映射 100% bbox 吻合）；完整逐字段文法依赖版本门控全表，需更多版本样本 |
 | U15 | CommonSchemas 流顶层计数/字段序与真实流名 | P0 | M5 收口 | 开（**需样本**：BCCCH 的 LcOpCommonSchemas 仅 11 字节近空，无真实内容可验证；夹具端到端绿） |
 | U16 | PropertyAttribute 嵌套值编码 + PartitionProps 块↔节点映射 | P1 | M5 收口 | ✅ N118 readData 定案 + N121 块表；块值↔树项最终对应待验（N121） |
 | U17 | ObjMatrix(17) 元素数（12/16）与排列 | P2 | M6 收口 | ✅ N124：8×f32 = 矩阵前两行（cl(0,0..3)、cl(1,0..3)），第三行 (0,0,0,1)；实现已修正 |
@@ -402,3 +402,9 @@
 | ID | 结论 | 态 | 证据 |
 |---|---|---|---|
 | **N124** | **U17 收口：ObjMatrix(17) = 8×f32**（readElement@0xc6561a：恰好 8 次 readFloat（各 rdFloat 4 字节），经 OdGeMatrix3d::cl(row,col) 依次写入 **row0=(0,0),(0,1),(0,2),(0,3)、row1=(1,0),(1,1),(1,2),(1,3)**，第三行恒 (0,0,0,1)）——非 12/16 元素。go-nwd `TransformMatrix` 已改为 8×f32 + 隐含尾行。**U3 收口：8B 间隙 = 纯填充、SDK 从不读取**（Load 尾部序列：seek fileSize−0x3c rdInt64→N；seek N 读尾块（zlib inflate 自然终止，无显式长度）；读 52B 头副本 @fileSize−0x34 并与头比对——间隙 [−0x44,−0x3c) 无任何 seek/读取）。**树遍历线性截断容错**（N123 迭代）：attrs/children 循环中单个对象解码失败时，回退到该信封起点、记录 gap 并截断该向量（流位置保持线性），宿主节点按部分填充成功返回——BCCCH walk 486 对象/深度 7/2 gaps（@58140+4 与 @61820+4，均 4 字节级 attrCount/字段门控残差，resync 就近恢复不损失后续对象） | 观察 | E2 符号@地址；`nwd/transform.go`/`nwd/objects.go`；`TestTransformRoundTrip`/`TestTransformMatrix4`/walk 测试 |
+
+## C40 轮（2026-10-14，N125：type 23 双确认无注册 reader —— 残差正式数据受限收口）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N125** | **typeID 23 无注册 reader（双确认）**：① registerObjectReaders@0xc1de9a 的 110 次 operator[] 调用（全量）中无 slot 23（`be 17 00 00 00` 字节模式 3 处全不在该函数；Go objtype_table 的 110 槽全量提取亦无 23）；② readObject@0xc3b5c8 对 factory[23] 为空返回错误 0x03——即 **SDK 自身读到 [marker 22][typeID 23] 也会中止解码**。⟹ BCCCH LogicalHierarchy 的 "Site - Sidewalk(JOINTS)" 24 字节残差（[marker 22][typeID 23] 后布局）不是 TNW_Db 常规对象流文法的产物——或为 Navisworks 专有写入（ODA 不回读该段）、或为上游更早未定门控差 4 的传导，**需 Navisworks 运行时/新样本定案**。该残差与 U10（旧档位门控）、U11（StaticTree 启用）、U14（Fragment 全字段）一并标注 **数据受限收口**；树遍历以线性截断容错交付 486 对象/深度 7（BCCCH）与 4 对象/4 gaps（GateHouse，gap 为 Plot 族 106/111——PlotGeometryAttribute readElement 为间接调用外壳文法未定、PlotArcSegment=[align8][Point2d center][f64 major][f64 minor][f64 startRadian]...已反汇编待实现），全部有 gap 记录与 resync 覆盖 | 观察 | E2 字节模式搜索 + objtype_table 全量对照；GateHouse walk 实测；`analysis/findings.md` U10/U11/U14 条目 |
