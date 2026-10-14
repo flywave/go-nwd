@@ -40,6 +40,8 @@ type ObjectReader struct {
 	// (fv>27) PartitionNodes never read children (N57).
 	LogicalStream bool
 	logicalRoot   bool
+	// Gaps records truncated segments from the tolerant walk (N123).
+	Gaps []Gap
 }
 
 // Gap records a skipped stream segment during a tolerant walk.
@@ -610,14 +612,26 @@ func (o *ObjectReader) decodeChildrenN(cc uint32, obj *Object) error {
 		return fmt.Errorf("nwd: child count %d exceeds limit", cc)
 	}
 	for i := uint32(0); i < cc; i++ {
+		start := o.r.pos
 		child, err := o.ReadObject()
 		if err != nil {
-			return err
+			// Tolerant truncation (N123): a failed child ends the vector at
+			// its envelope start, keeping the stream position linear for the
+			// parent level.
+			o.fail(start, err)
+			return nil
 		}
 		// nil slots are valid empty children (count-driven loop).
 		obj.Children = append(obj.Children, child)
 	}
 	return nil
+}
+
+// fail records a skipped segment starting at pos and rewinds the reader
+// to it, so decoding can continue with the next linear structure.
+func (o *ObjectReader) fail(pos int, err error) {
+	o.Gaps = append(o.Gaps, Gap{Pos: pos, Skipped: o.r.pos - pos, Err: err.Error()})
+	o.r.pos = pos
 }
 
 // decodeGroupNode reads typeID 53 (readElement@0xc3a216): the ModelItem

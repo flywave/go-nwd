@@ -80,14 +80,18 @@ func (o *ObjectReader) decodeTransform(obj *Object) (*Transform, error) {
 			return nil, err
 		}
 	case TransformMatrix:
-		// 4x4 element-wise f32 (row-major; count pinned by samples, U17).
-		for i := 0; i < 16; i++ {
+		// Two matrix rows as 8×f32 (readElement@0xc6561a: eight
+		// readFloat + OdGeMatrix3d::cl(row,col) for rows 0 and 1, columns
+		// 0..3; the third row is the implicit (0,0,0,1) — U17 closed).
+		for i := 0; i < 8; i++ {
 			f, err := o.r.f32()
 			if err != nil {
 				return nil, err
 			}
 			t.Matrix[i] = float64(f)
 		}
+		t.Matrix[8], t.Matrix[9], t.Matrix[10], t.Matrix[11] = 0, 0, 0, 1
+		t.Matrix[12], t.Matrix[13], t.Matrix[14], t.Matrix[15] = 0, 0, 0, 1
 		t.HasMatrix = true
 	}
 	obj.Transform = t
