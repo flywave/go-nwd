@@ -132,15 +132,15 @@
 | U8 | 未压缩流中段内部帧格式 | P2 | M3 按需 | 开 |
 | U9 | Partition/Hierarchy/GeometryCompress/Schemas 流内布局 | P0(P1 清单) | M3–M5 | 🔶 信封+树节点 schema 落地（N19–N22）；Geometry/Schemas 流内格式仍开 |
 | U10 | FormatVersionEx 全档位与各门控字段精确布局（>21/>214/>248/>451 分支）；版本注入点（FileInfo vs 流头） | P0 | M3 收口 | 开（夹具固定 fv=100 窗口） |
-| U11 | StaticTreeGroup/Leaf（空间层次）与 Fragment 引用编码 | P1 | M4 联调 | 开 |
+| U11 | StaticTreeGroup/Leaf（空间层次）与 Fragment 引用编码 | P1 | M4 联调 | 🔶 N120：SpatialHierarchy 流=fragment 索引（getFragment 回调）；模型树在 LogicalHierarchy（N117）。StaticTree 文法按需（实例化已由 BuildInstances 交付） |
 | U12 | 位打包量化几何（readIndexes/readBits/readIndexTable + 精度还原） | P0 | M4 收口 | 开（需真实样例） |
 | U13 | GeometryCompress 块计数/每块精确布局 + 块↔几何索引映射 | P1 | M4 收口 | 开 |
 | U14 | Fragment 11 flag 位 × 8 版本门控精确字段序 | P1 | M4/M5 联调 | 开 |
 | U15 | CommonSchemas 流顶层计数/字段序与真实流名 | P0 | M5 收口 | 开（夹具对齐布局） |
-| U16 | PropertyAttribute 嵌套值编码 + PartitionProps 块↔节点映射 | P1 | M5 收口 | 开 |
+| U16 | PropertyAttribute 嵌套值编码 + PartitionProps 块↔节点映射 | P1 | M5 收口 | ✅ N118 readData 定案 + N121 块表；块值↔树项最终对应待验（N121） |
 | U17 | ObjMatrix(17) 元素数（12/16）与排列 | P2 | M6 收口 | 开 |
 | U18 | 真实属性类型 payload 全表 | P0 | M3/M5 收口 | ✅ PublishAttribute 定案（N56）；余 70/76/79/86/88/180 同基类 |
-| U19 | 完整模型树（SpatialHierarchy 索引 → 节点层级） | P1 | M3 收口 | 🔶 结构观察（N62：[count,index] 记录引 Partition item）；完整文法待 |
+| U19 | 完整模型树（SpatialHierarchy 索引 → 节点层级） | P1 | M3 收口 | ✅ N117/N119：模型树=LogicalHierarchy 对象流，DecodeLogicalHierarchy 落地；N120：SpatialHierarchy=fragment 索引；exotic Name 变体族以 gap 交付 |
 | U20 | GeometryCompress 设置来源 | P1 | M4 收口 | 🔶 GenSubkeys2=标准 Blowfish（N64）；40B 非设置明文，来源待 |
 | U21 | 几何三角索引：codec 已定（N58）；元素内索引区**无法精确落位**（N66 块0 零候选） | P1 | M4 收口 | 🔶 codec 落地；组合未收敛 |
 | U22 | GeometryCompress 流实为 40B（本样本）之语义（是否空/占位） | P2 | M4 | 开 |
