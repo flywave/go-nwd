@@ -124,7 +124,7 @@
 |---|---|---|---|---|
 | ~~U1~~ | ~~TOC rdInt64×2/rdInt32 的 offset/size/chunkCount 对应关系~~ | P0 | M1 收口 | ✅ N15 定案（offset/size/prefix/suffix） |
 | ~~U2~~ | ~~主负载 chunk 头格式与 MultiChunk 分块策略~~ | P0 | M2 | ✅ 单块模型定案（N15/N17）；MultiChunk 内部再分块→U7 |
-| U3 | 8B 间隙（P+N 处）语义 | P1 | 夹具精确性 | 开（不影响真实文件解析——两真实样本全链路通过；仅影响合成夹具字节级对齐） |
+| U3 | 8B 间隙（P+N 处）语义 | P1 | 夹具精确性 | 开（不影响真实文件解析；E2 Load@0xbd37e7 seek 序列可进一步反汇编定案，纯夹具对齐问题） |
 | U4 | ascii 模式尾块是否同样携带 lcodapi/lizlib 词 | P1 | 夹具对齐 | 开（**需样本**：无 ascii 模式样本；真实样本均为 binary） |
 | U5 | v2–7 LoadOld 布局 | P2 | 按需 | 开（**需样本**：2013–2016 旧版文件；E2 存在 LoadOld 入口，现代 v8 全链路不受影响） |
 | U6 | NwAdler32 校验范围 → 已定案为 N16；新问题：prefix==4 的 chunk0 特殊路径 | P2 | 健壮性 | 部分收口 |
@@ -132,13 +132,13 @@
 | U8 | 未压缩流中段内部帧格式 | P2 | M3 按需 | 开（按需；真实属性流已按对象信封解码） |
 | U9 | Partition/Hierarchy/GeometryCompress/Schemas 流内布局 | P0(P1 清单) | M3–M5 | 🔶 信封+树节点 schema 落地（N19–N22）；Geometry/Schemas 流内格式仍开 |
 | U10 | FormatVersionEx 全档位与各门控字段精确布局（>21/>214/>248/>451 分支）；版本注入点（FileInfo vs 流头） | P0 | M3 收口 | 🔶 大幅收敛（N122）：FormatVersionEx=尾块 navisworks:<N>（431/451 实测解析）；主要门控（materialJson>446、共享节点≥451、explicitName 关闭）已按真实版本落地；仅旧档位（≤202/≤248/≤30）分支需旧样本 |
-| U11 | StaticTreeGroup/Leaf（空间层次）与 Fragment 引用编码 | P1 | M4 联调 | 🔶 N120：SpatialHierarchy 流=fragment 索引（getFragment 回调）；模型树在 LogicalHierarchy（N117）。StaticTree 文法按需（实例化已由 BuildInstances 交付） |
+| U11 | StaticTreeGroup/Leaf（空间层次）与 Fragment 引用编码 | P1 | M4 联调 | 🔶 N120/N123：SpatialHierarchy 流=fragment 索引；StaticTree(1/2) 不在两真实样本的 LogicalHierarchy 对象流中出现（walk gap 簇中为 resync 误读）；readTreeItem 文法已反汇编（readObject + NwTreeItemType 枚举 ≤5 + u32 fragment 回调）待真实样本启用 |
 | U12 | 位打包量化几何（readIndexes/readBits/readIndexTable + 精度还原） | P0 | M4 收口 | 开（**需样本**：文法已定 N73，两真实样本均不触发该路径，实现不可证伪） |
 | U13 | GeometryCompress 块计数/每块精确布局 + 块↔几何索引映射 | P1 | M4 收口 | 开（**需样本**：本样本该流仅 40B 占位；几何走 Geometry 流，主线不受影响） |
 | U14 | Fragment 11 flag 位 × 8 版本门控精确字段序 | P1 | M4/M5 联调 | 🔶 逐记录遍历已用信封重同步交付（N101/N104：47,016 条、映射 100% 吻合）；完整逐字段文法需更多版本样本 |
 | U15 | CommonSchemas 流顶层计数/字段序与真实流名 | P0 | M5 收口 | 开（**需样本**：BCCCH 的 LcOpCommonSchemas 仅 11 字节近空，无真实内容可验证；夹具端到端绿） |
 | U16 | PropertyAttribute 嵌套值编码 + PartitionProps 块↔节点映射 | P1 | M5 收口 | ✅ N118 readData 定案 + N121 块表；块值↔树项最终对应待验（N121） |
-| U17 | ObjMatrix(17) 元素数（12/16）与排列 | P2 | M6 收口 | 开（按需；fragments 变换已可用） |
+| U17 | ObjMatrix(17) 元素数（12/16）与排列 | P2 | M6 收口 | 开（E2 可推进：ObjMatrixReader readElement 待反汇编定元素数；两真实样本 fragment 变换以 14/15/16 为主，17 未触发——**需样本**验证） |
 | U18 | 真实属性类型 payload 全表 | P0 | M3/M5 收口 | ✅ PublishAttribute 定案（N56）；余 70/76/79/86/88/180 同基类 |
 | U19 | 完整模型树（SpatialHierarchy 索引 → 节点层级） | P1 | M3 收口 | ✅ N117/N119/N122：DecodeLogicalHierarchy 深度遍历（460 对象/树深 7，Model Lines 等类目子树完整）；两簇 exotic 节点 gap 已记录（N122） |
 | U20 | GeometryCompress 设置来源 | P1 | M4 收口 | 开（**需样本**：40B 解密为高熵非明文（N64），疑占位/摘要；几何顶点已不依赖它（N71）） |
@@ -390,3 +390,9 @@
 | ID | 结论 | 态 | 证据 |
 |---|---|---|---|
 | **N122** | **树遍历深度收敛**（BCCCH LogicalHierarchy 5MB）：修正四项后对象数 2→**460、树深 7**，"Model Lines"/"Monolithic Landing"/"Landings" 等类目子树完整解出：① **GroupModelItemNode(53)/GeometryModelItemNode(22) 的 readExplisitName 在本批样本的 FormatVersionEx（431/451）下不存在**（门控关闭）——尾串读取曾吞掉后续信封；② **真实 FormatVersionEx 接入**：尾块签名行的 `navisworks:<N>` 词解析为 `Config.NavisworksID`（BCCCH=451、GateHouse=431），`File.FormatVersionEx()` 暴露并驱动类型门控（此前 walk 用合成值 100 导致 GraphicJsonBundle 的 materialJson 门控反转）；③ **GraphicJsonBundle(185) 文法定案**（readElement@0xc36af4）：`[jsonData 字符串][fv>446: materialJson 字符串（可为 null=-1）][u32 条目数][条目数 × (字符串名 + u32 + u32 hasEmbedded，非 0 时 readEmbeddedFile=[串][串][align8][u64 长度][数据])][xref 字符串]`——BCCCH 实测 8 条目纹理路径精确平铺至 73416；④ **readData 宽度以跳转表定案**（readData@0xc3bd6e 表基 0x11750b4，17 case）：NONE(0)=0 字节、浮点类=align8+f64（Variant::Type 是模板常量不读）、BOOL=readBool=rdInt32、NAME(8)=嵌套对象、**未知枚举=0 字节且不报错**（默认分支返回空 OdNwData）。**剩余 gap**：两簇（@58140 起 10KB 与 @73015 起 400B）——涉及 [760][22] GeometryModelItemNode 的字段门控组合（flags=0 时 guid/attrCount 的取舍）与 StaticTree(1/2) 叶，容错遍历以 gap 记录 | 观察 | E2 符号@地址；BCCCH 实测（TestLogicalHierarchyBCCCH：objects>=400、maxDepth>=5）；`nwd/hierarchy.go`/`nwd/objects.go`/`nwd/props.go`/`internal/nwstream/container.go` |
+
+## C38 轮（2026-10-14，N123：树遍历 gap 收敛至 2 个局部缺口）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N123** | **树遍历 gap 9→2**（BCCCH，objects 460→486）：① **readObjectVector 对 NIL 也 push_back(null)**——对象向量槽位对齐包含 NIL（真实 backref 引用 NIL 槽），go-nwd 原实现 NIL 不入向量导致后续全部 backref slot 前移；② **backref 存储值 = 100+slot**（readObject@0xc3b526 先减 0x64 再界检）；③ **children 恢复路径**：attrCount 在组合门控下可比真实序列少 1（BCCCH "BASE NAVD"/"Site - Sidewalk(JOINTS)" 节点实证：children count 位实为最后一个 attr 的信封 [marker 22][typeID 23 单串对象]）——decodeGroupNode 在 children 解码失败时回滚、补解码一个 attr 并重试 children；④ **readData 权威宽度**以跳转表定案（NONE=0、未知枚举=0、浮点 align8 无尾标、DATETIME/INT64/UINT64 align8、NAME=嵌套对象）；⑤ GraphicJsonBundle(185) 条目循环为 **count 驱动**（[u32 条目数][条目 × (名称+u32+hasEmbedded+可选嵌入文件)]，readElement@0xc36af4 条目计数 8 实测平铺）。**剩余 2 gap**（各 4 字节级局部缺口，resync 覆盖）：@58140 后 +4（GMA/attrCount 组合门控）与 @61820 后 +4（同族）——均不损失后续对象（resync 就近恢复） | 观察 | E2 符号@地址；BCCCH 实测（objects 486 / maxDepth 7 / gaps 2）；`nwd/objects.go`/`nwd/hierarchy.go`/`nwd/props.go` |

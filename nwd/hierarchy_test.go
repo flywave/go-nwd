@@ -19,7 +19,7 @@ func TestLogicalHierarchyBCCCH(t *testing.T) {
 	if len(ld) < 8 {
 		t.Fatalf("logical hierarchy too small: %d", len(ld))
 	}
-	h, err := DecodeLogicalHierarchy(ld, true)
+	h, err := DecodeLogicalHierarchyVersion(ld, f.FormatVersionEx(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,8 +49,8 @@ func TestLogicalHierarchyBCCCH(t *testing.T) {
 	if h.MaxDepth < 5 {
 		t.Errorf("maxDepth = %d, want >= 5", h.MaxDepth)
 	}
-	if h.Objects < 400 {
-		t.Errorf("objects = %d, want >= 400", h.Objects)
+	if h.Objects < 480 {
+		t.Errorf("objects = %d, want >= 480", h.Objects)
 	}
 	// Tolerance: the walk reports its gaps instead of failing.
 	if len(h.Gaps) == 0 {

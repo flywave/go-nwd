@@ -173,6 +173,10 @@ func (o *ObjectReader) ReadObject() (*Object, error) {
 	}
 	switch {
 	case marker == envNil:
+		// A nil occupies its object-vector slot too: readObjectVector
+		// push_backs null entries (real-file backrefs address NIL slots,
+		// findings N123).
+		o.vector = append(o.vector, ObjectRef{Kind: 0, Index: len(o.vector)})
 		return nil, nil
 	case marker == envBackref:
 		idx, err := o.r.i32()
@@ -255,6 +259,10 @@ func (o *ObjectReader) decodePayload(obj *Object) error {
 	case 5, 18: // Name-grammar variants (N118: type 18 as property keys,
 		// type 5 as tree child "Lines"/"LcRevitComposite")
 		return o.decodeName(obj)
+	case 23: // ModelItem-family node ("Site - Sidewalk(JOINTS)" layer
+		// entries: userName + className backref + flags + guid +
+		// attrCount + attrs, real-file walk findings N123)
+		return o.decodeModelItem(obj)
 	case TypeGraphicJsonBundle:
 		return o.decodeGraphicJsonBundle(obj)
 	case 196: // single-string Name variant ("Model Lines", N118); the
@@ -468,7 +476,7 @@ func (o *ObjectReader) decodeGraphicMaterialAttribute(obj *Object) error {
 		return err
 	}
 	a.AttrFlags = flags
-	if o.FormatVersion >= 451 {
+	if o.FormatVersion > 451 {
 		var idx int32
 		if idx, err = o.r.i32(); err != nil {
 			return err
@@ -593,6 +601,11 @@ func (o *ObjectReader) decodeChildren(obj *Object) error {
 	if err != nil {
 		return err
 	}
+	return o.decodeChildrenN(cc, obj)
+}
+
+// decodeChildrenN reads cc child objects (count-driven; nil slots valid).
+func (o *ObjectReader) decodeChildrenN(cc uint32, obj *Object) error {
 	if cc > 1<<20 {
 		return fmt.Errorf("nwd: child count %d exceeds limit", cc)
 	}
@@ -612,11 +625,35 @@ func (o *ObjectReader) decodeChildren(obj *Object) error {
 // readExplisitName is version-gated and absent at the format versions in
 // our samples (fv≈100/431/451, real-file walk findings N122); it becomes
 // active only in newer files (U10 gate to pin).
+//
+// Children carry a recovery path (N123): the streamed attrCount can be
+// one short of the real attribute sequence under the combined per-field
+// gates, which makes the child count position decode as garbage. When the
+// child vector fails, roll back, decode one more attribute and retry.
 func (o *ObjectReader) decodeGroupNode(obj *Object) error {
 	if err := o.decodeModelItem(obj); err != nil {
 		return err
 	}
-	return o.decodeChildren(obj)
+	save := o.r.pos
+	cc, err := o.r.u32()
+	if err != nil {
+		return err
+	}
+	if err := o.decodeChildrenN(cc, obj); err == nil {
+		return nil
+	}
+	o.r.pos = save
+	attr, aerr := o.ReadObject()
+	if aerr != nil {
+		o.r.pos = save
+		return aerr
+	}
+	obj.Attributes = append(obj.Attributes, attr)
+	cc, err = o.r.u32()
+	if err != nil {
+		return err
+	}
+	return o.decodeChildrenN(cc, obj)
 }
 
 // zstring reads a NUL-terminated string, advancing past the terminator and
