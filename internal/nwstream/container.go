@@ -125,9 +125,14 @@ func Parse(data []byte) (*Container, error) {
 
 	// Parse the trailing-block signature line, then align to 8 bytes from
 	// the block start (readStreamConfig@0xbd32af..0xbd32ed).
-	zlibOff, err := skipSignatureLine(trailer)
+	zlibOff, navID, err := skipSignatureLine(trailer)
 	if err != nil {
 		return nil, fmt.Errorf("nwstream: trailing signature: %w", err)
+	}
+	// The trailing line carries the FormatVersionEx as its "navisworks:<N>"
+	// (or "lcodapi-<N>") word — findings N38.
+	if navID != 0 {
+		cfg.NavisworksID = navID
 	}
 
 	// The zlib TOC starts after the signature line and runs to the end of
@@ -239,9 +244,12 @@ func (c *Container) StreamData(i int) ([]byte, error) {
 
 // skipSignatureLine consumes whitespace-separated signature words from the
 // start of the trailing block and returns the 8-byte-aligned offset where
-// the zlib stream begins (findings N3 + readStreamConfig alignment).
-func skipSignatureLine(block []byte) (int, error) {
+// the zlib stream begins (findings N3 + readStreamConfig alignment) plus
+// the FormatVersionEx carried by a "navisworks:<N>" or "lcodapi-<N>" word
+// (0 when absent, findings N38).
+func skipSignatureLine(block []byte) (int, uint32, error) {
 	i := 0
+	navID := uint32(0)
 	for i < len(block) && isSpace(block[i]) {
 		i++
 	}
@@ -255,24 +263,46 @@ func skipSignatureLine(block []byte) (int, error) {
 			break
 		}
 		words++
-		if !isSignatureWord(string(block[start:i])) {
+		word := string(block[start:i])
+		if !isSignatureWord(word) {
 			i = start
 			break
+		}
+		if n := parseNavisworksID(word); n != 0 {
+			navID = n
 		}
 		for i < len(block) && isSpace(block[i]) {
 			i++
 		}
 	}
 	if words == 0 {
-		return 0, fmt.Errorf("no signature words")
+		return 0, 0, fmt.Errorf("no signature words")
 	}
 	if pad := (-i) & (alignTo - 1); pad != 0 {
 		i += pad
 	}
 	if i > len(block) {
-		return 0, fmt.Errorf("alignment past end of trailing block")
+		return 0, 0, fmt.Errorf("alignment past end of trailing block")
 	}
-	return i, nil
+	return i, navID, nil
+}
+
+// parseNavisworksID extracts the decimal N from a "navisworks:<N>" or
+// "lcodapi-<N>" signature word; 0 when the word does not carry one.
+func parseNavisworksID(word string) uint32 {
+	for _, prefix := range []string{"navisworks:", "lcodapi-"} {
+		if len(word) > len(prefix) && word[:len(prefix)] == prefix {
+			n := uint32(0)
+			for _, c := range word[len(prefix):] {
+				if c < '0' || c > '9' {
+					return 0
+				}
+				n = n*10 + uint32(c-'0')
+			}
+			return n
+		}
+	}
+	return 0
 }
 
 func isSignatureWord(s string) bool {

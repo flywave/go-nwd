@@ -65,6 +65,13 @@ func DecodeGuidStore(stream []byte) ([]string, error) {
 // next slot with a typeID <= 200), so one exotic node cannot hide the
 // rest of the model tree.
 func DecodeLogicalHierarchy(stream []byte, withPropsBlocks bool) (*LogicalHierarchy, error) {
+	return DecodeLogicalHierarchyVersion(stream, formatVersionGate, withPropsBlocks)
+}
+
+// DecodeLogicalHierarchyVersion walks the stream with an explicit
+// FormatVersionEx (the real value gates per-type fields like the
+// GraphicJsonBundle materialJson, findings N122).
+func DecodeLogicalHierarchyVersion(stream []byte, formatVersion uint32, withPropsBlocks bool) (*LogicalHierarchy, error) {
 	h := &LogicalHierarchy{}
 	r := newBR(stream)
 	if withPropsBlocks {
@@ -99,7 +106,7 @@ func DecodeLogicalHierarchy(stream []byte, withPropsBlocks bool) (*LogicalHierar
 		return nil, fmt.Errorf("nwd: logical hierarchy child count %d", childCount)
 	}
 
-	or := &ObjectReader{r: r, FormatVersion: formatVersionGate, LogicalStream: true}
+	or := &ObjectReader{r: r, FormatVersion: formatVersion, LogicalStream: true}
 	// The root partition node occupies vector slot 0 via the stream-level
 	// marker (addToObjectVector(root, 100)).
 	or.vector = append(or.vector, ObjectRef{Kind: 2, Index: 0, TypeID: PartitionNode})

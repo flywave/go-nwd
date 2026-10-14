@@ -191,6 +191,9 @@ const (
 	// AttrGraphicMaterial marks typeID 200 (OdNwGraphicMaterialAttribute):
 	// a shared-node index (fv>=451) or nested bundle object.
 	AttrGraphicMaterial AttributeKind = "graphic-material"
+	// AttrJsonBundle marks typeID 185 (OdNwGraphicJsonBundle): jsonData in
+	// Attribute.Text, materialJson in ExplicitName.
+	AttrJsonBundle AttributeKind = "json-bundle"
 )
 
 // attrKindByType maps NwObjectType IDs to attribute kinds (findings N28).
@@ -374,12 +377,16 @@ func (o *ObjectReader) decodeAttribute(obj *Object) (*Attribute, error) {
 }
 
 // readDataValue decodes one OdNwObjectReaderManager::readData() typed
-// value (readData@0xc3bd6e): [NwDataType enum][typed payload] — E1
-// NwDataType.h: 1 DOUBLE, 2 INT32, 3 BOOL, 4 DISPLAY_STRING, 5 DATETIME,
-// 6 DOUBLE_LENGTH, 7 DOUBLE_ANGLE, 8 NAME, 9 IDENTIFIER_STRING,
-// 10 DOUBLE_AREA, 11 DOUBLE_VOLUME, 12 POINT3D, 13 POINT2D, 14 UINT32,
-// 15 INT64, 16 UINT64. Floating-point cases begin with align8 and carry a
-// trailing i32 unit/variant tag (12-byte form, real-file verified).
+// value (readData@0xc3bd6e): [NwDataType enum][typed payload]. Widths are
+// authoritative from the readData jump table at 0x11750b4 (17 cases,
+// E2): 1 DOUBLE = align8+f64; 6/7/10/11 length/angle/area/volume =
+// align8+f64 (the Variant::Type is a C++ template constant, not read);
+// 2 INT32 = i32; 3 BOOL = i32 (readBool = rdInt32); 4/9 strings
+// (readString, align4); 5 DATETIME = align8+i64; 8 NAME = a nested
+// object (readObject); 12 POINT3D = align8+3×f64; 13 POINT2D =
+// align8+2×f64; 14 UINT32; 15 INT64 = align8+i64; 16 UINT64 =
+// align8+u64; 0 NONE and any unknown enum consume nothing (the default
+// case returns a null OdNwData without reading).
 func (o *ObjectReader) readDataValue(f *PropertyField) error {
 	switch f.FieldType {
 	case 1, 6, 7, 10, 11: // DOUBLE / length / angle / area / volume
@@ -404,7 +411,7 @@ func (o *ObjectReader) readDataValue(f *PropertyField) error {
 				return err
 			}
 		}
-	case 2, 3: // INT32, BOOL
+	case 2, 3: // INT32, BOOL (readBool = rdInt32)
 		v, err := o.r.i32()
 		if err != nil {
 			return err
@@ -416,7 +423,8 @@ func (o *ObjectReader) readDataValue(f *PropertyField) error {
 			return err
 		}
 		f.Number = int64(v)
-	case 15, 16, 5: // INT64, UINT64, DATETIME
+	case 5, 15, 16: // DATETIME, INT64, UINT64
+		o.r.align(8)
 		v, err := o.r.i64()
 		if err != nil {
 			return err
@@ -439,25 +447,8 @@ func (o *ObjectReader) readDataValue(f *PropertyField) error {
 			return err
 		}
 		f.Str = s
-	case 0: // NONE — 8-byte zero payload (real-file aligned, N118)
-		v, err := o.r.i64()
-		if err != nil {
-			return err
-		}
-		f.Number = v
-	case 22: // object reference: i32 (negative = null), real-file N118
-		v, err := o.r.i32()
-		if err != nil {
-			return err
-		}
-		f.Number = int64(v)
-	default:
-		lo := o.r.pos
-		hi := lo + 32
-		if hi > len(o.r.buf) {
-			hi = len(o.r.buf)
-		}
-		return fmt.Errorf("nwd: property data type %d (key %q) unsupported at %d: % x", f.FieldType, f.Key, lo, o.r.buf[lo:hi])
+	default: // NONE (0) and unknown enums: no payload (readData default)
+		return nil
 	}
 	return nil
 }

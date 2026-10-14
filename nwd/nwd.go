@@ -79,6 +79,17 @@ type File struct {
 	c        *nwstream.Container
 }
 
+// FormatVersionEx returns the stream-schema version carried by the
+// trailing signature line ("navisworks:<N>", findings N38) — 451 for a
+// 2024-published file. Falls back to 100 (the pre-2020 gate window) when
+// the container does not carry the word.
+func (f *File) FormatVersionEx() uint32 {
+	if id := f.c.Config.NavisworksID; id != 0 {
+		return id
+	}
+	return formatVersionGate
+}
+
 // Detect reports whether buf looks like an NWD container and returns the
 // detected kind. It never returns an error for ordinary non-NWD data.
 func Detect(buf []byte) Kind {
@@ -197,7 +208,7 @@ func (f *File) DecodeLogicalHierarchyStream(i int, withPropsBlocks bool) (*Logic
 	if err != nil {
 		return nil, err
 	}
-	return DecodeLogicalHierarchy(data, withPropsBlocks)
+	return DecodeLogicalHierarchyVersion(data, f.FormatVersionEx(), withPropsBlocks)
 }
 
 func (f *File) DecodeObjectStream(i int, formatVersion uint32, limit int) (*ObjectStream, error) {

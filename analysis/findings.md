@@ -140,7 +140,7 @@
 | U16 | PropertyAttribute 嵌套值编码 + PartitionProps 块↔节点映射 | P1 | M5 收口 | ✅ N118 readData 定案 + N121 块表；块值↔树项最终对应待验（N121） |
 | U17 | ObjMatrix(17) 元素数（12/16）与排列 | P2 | M6 收口 | 开 |
 | U18 | 真实属性类型 payload 全表 | P0 | M3/M5 收口 | ✅ PublishAttribute 定案（N56）；余 70/76/79/86/88/180 同基类 |
-| U19 | 完整模型树（SpatialHierarchy 索引 → 节点层级） | P1 | M3 收口 | ✅ N117/N119：模型树=LogicalHierarchy 对象流，DecodeLogicalHierarchy 落地；N120：SpatialHierarchy=fragment 索引；exotic Name 变体族以 gap 交付 |
+| U19 | 完整模型树（SpatialHierarchy 索引 → 节点层级） | P1 | M3 收口 | ✅ N117/N119/N122：DecodeLogicalHierarchy 深度遍历（460 对象/树深 7，Model Lines 等类目子树完整）；两簇 exotic 节点 gap 已记录（N122） |
 | U20 | GeometryCompress 设置来源 | P1 | M4 收口 | 🔶 GenSubkeys2=标准 Blowfish（N64）；40B 非设置明文，来源待 |
 | U21 | 几何三角索引：codec 已定（N58）；元素内索引区**无法精确落位**（N66 块0 零候选） | P1 | M4 收口 | 🔶 codec 落地；组合未收敛 |
 | U22 | GeometryCompress 流实为 40B（本样本）之语义（是否空/占位） | P2 | M4 | 开 |
@@ -384,3 +384,9 @@
 | **N119** | **容错树遍历落地**：`nwd/hierarchy.go:DecodeLogicalHierarchy` 按文法走整树，遇未支持/错位对象记录 Gap 并重同步（扫描 marker∈[100,4200] 且 typeID≤200 的下一信封），交付 `File.DecodeLogicalHierarchyStream` + GuidStore 解码 + nwdinfo `logical_tree`/`guids` 节。BCCCH 顶层首子 = PartitionNode "BCCCH_SITE_LAND.nwc"（guidIndex 5401）；GateHouse 顶层 3 子。 exotic 变体族的 gap 使部分子树以 gap 交付（诚实降级而非硬失败） | 观察（实现） | `TestLogicalHierarchyBCCCH`/`TestLogicalHierarchyGateHouse`/`TestGuidStoreBCCCH`/`TestPropertyAttributeReadData` |
 | **N120** | **SpatialHierarchy 流角色定案（U19 收口）**：`SpatialHierarchyStreamLoader::parseStream@0xcff23c` **不读流数据**——仅取 Partition loader 的 `getTreeItem()` 存入 this+0x50；`OdNwSpatialHierarchyStreamContext::getFragment(u32)`@0xcfec72 是 `readStaticItem` 的 fragment 回调数据源。模型树的真实载体是 **LogicalHierarchy**（N117）；空间流为 fragment 索引（N62 的 [count][index] 记录），与 StaticTree(1/2) 组/叶对象共同服务于实例遍历，挂账转为按需（实例化已由 BuildInstances 元数据交付，N109） | 观察 | E2 readElement 调用链；N31/N62/N109 |
 | **N121** | **U16 块映射定案**：LogicalHierarchy 头部的 i32 数组即 `getPartPropsBlocks()`@0xb30460 返回的 PartitionProps 块表（N117）；LcOaPartitionProps = PropertyAttribute(86) 对象流（N118 文法），`ScanNames` 的 212 个属性键即其键对象。块值语义（每块属性计数或字节尺寸）与树项的对应关系待对接 LogicalHierarchy 顶层项验证 | 观察（部分） | `TestLogicalHierarchyBCCCH`；`cmd/nwdinfo` |
+
+## C37 轮（2026-10-14，N122：树遍历深度收敛 — 文法修正与真实 FormatVersionEx）
+
+| ID | 结论 | 态 | 证据 |
+|---|---|---|---|
+| **N122** | **树遍历深度收敛**（BCCCH LogicalHierarchy 5MB）：修正四项后对象数 2→**460、树深 7**，"Model Lines"/"Monolithic Landing"/"Landings" 等类目子树完整解出：① **GroupModelItemNode(53)/GeometryModelItemNode(22) 的 readExplisitName 在本批样本的 FormatVersionEx（431/451）下不存在**（门控关闭）——尾串读取曾吞掉后续信封；② **真实 FormatVersionEx 接入**：尾块签名行的 `navisworks:<N>` 词解析为 `Config.NavisworksID`（BCCCH=451、GateHouse=431），`File.FormatVersionEx()` 暴露并驱动类型门控（此前 walk 用合成值 100 导致 GraphicJsonBundle 的 materialJson 门控反转）；③ **GraphicJsonBundle(185) 文法定案**（readElement@0xc36af4）：`[jsonData 字符串][fv>446: materialJson 字符串（可为 null=-1）][u32 条目数][条目数 × (字符串名 + u32 + u32 hasEmbedded，非 0 时 readEmbeddedFile=[串][串][align8][u64 长度][数据])][xref 字符串]`——BCCCH 实测 8 条目纹理路径精确平铺至 73416；④ **readData 宽度以跳转表定案**（readData@0xc3bd6e 表基 0x11750b4，17 case）：NONE(0)=0 字节、浮点类=align8+f64（Variant::Type 是模板常量不读）、BOOL=readBool=rdInt32、NAME(8)=嵌套对象、**未知枚举=0 字节且不报错**（默认分支返回空 OdNwData）。**剩余 gap**：两簇（@58140 起 10KB 与 @73015 起 400B）——涉及 [760][22] GeometryModelItemNode 的字段门控组合（flags=0 时 guid/attrCount 的取舍）与 StaticTree(1/2) 叶，容错遍历以 gap 记录 | 观察 | E2 符号@地址；BCCCH 实测（TestLogicalHierarchyBCCCH：objects>=400、maxDepth>=5）；`nwd/hierarchy.go`/`nwd/objects.go`/`nwd/props.go`/`internal/nwstream/container.go` |

@@ -255,6 +255,8 @@ func (o *ObjectReader) decodePayload(obj *Object) error {
 	case 5, 18: // Name-grammar variants (N118: type 18 as property keys,
 		// type 5 as tree child "Lines"/"LcRevitComposite")
 		return o.decodeName(obj)
+	case TypeGraphicJsonBundle:
+		return o.decodeGraphicJsonBundle(obj)
 	case 196: // single-string Name variant ("Model Lines", N118); the
 		// string pads to an 8-byte boundary (readString<align1>)
 		s, err := o.r.readString()
@@ -376,6 +378,79 @@ var transformAttrKindByType = map[int]TransformKind{
 // base attribute prefix plus a graphic JSON bundle — shared-node indexed
 // for fv>=451 (readSharedObject@0xc3b76e), a full object envelope below.
 const TypeGraphicMaterialAttribute = 200
+
+// TypeGraphicJsonBundle is NwObjectType 185: a presenter-material JSON
+// blob carried directly in the logical stream (readElement@0xc36af4).
+const TypeGraphicJsonBundle = 185
+
+// decodeGraphicJsonBundle reads typeID 185 (readElement@0xc36af4):
+// [jsonData string][fv>446: materialJson string][tagged loop: u32 tag;
+// tag==0 ends; else string name, u32 hasEmbedded, and when set an
+// embedded file [string][string][align8][u64 len][len bytes]]
+// [string xrefKey].
+func (o *ObjectReader) decodeGraphicJsonBundle(obj *Object) error {
+	a := &Attribute{Kind: AttrJsonBundle, TypeID: obj.TypeID}
+	var err error
+	if a.Text, err = o.r.readString(); err != nil {
+		return err
+	}
+	if o.FormatVersion > 446 {
+		a.ExplicitName, err = o.r.readString() // materialJson
+		if err != nil {
+			return err
+		}
+	}
+	// Entry count (BCCCH: 8), then count-driven entries; each is
+	// [string name][u32][u32 hasEmbedded] (real-file tiling, N122).
+	var entryCount uint32
+	if entryCount, err = o.r.u32(); err != nil {
+		return err
+	}
+	if entryCount > 1<<20 {
+		return fmt.Errorf("nwd: json bundle entry count %d exceeds limit", entryCount)
+	}
+	for i := uint32(0); i < entryCount; i++ {
+		if _, err = o.r.readString(); err != nil { // entry name
+			return err
+		}
+		if _, err = o.r.u32(); err != nil {
+			return err
+		}
+		var hasEmbedded uint32
+		if hasEmbedded, err = o.r.u32(); err != nil {
+			return err
+		}
+		if hasEmbedded == 0 {
+			continue
+		}
+		// readEmbeddedFile@0xc3c48a: two strings, align8, u64 length, bytes.
+		if _, err = o.r.readString(); err != nil {
+			return err
+		}
+		if _, err = o.r.readString(); err != nil {
+			return err
+		}
+		o.r.align(8)
+		var n int64
+		if n, err = o.r.i64(); err != nil {
+			return err
+		}
+		if n < 0 {
+			return fmt.Errorf("nwd: embedded file negative length %d", n)
+		}
+		if n > 1<<30 {
+			return fmt.Errorf("nwd: embedded file %d bytes exceeds limit", n)
+		}
+		if _, err = o.r.raw(int(n)); err != nil {
+			return err
+		}
+	}
+	if _, err = o.r.readString(); err != nil { // xref key
+		return err
+	}
+	obj.Attribute = a
+	return nil
+}
 
 // decodeGraphicMaterialAttribute reads typeID 200 (readElement@0xc43daa):
 // base attribute prefix, then the graphic bundle by shared-node index
@@ -504,15 +579,12 @@ func (o *ObjectReader) decodePartitionNode(obj *Object) error {
 }
 
 // decodeGeometryItem reads typeID 22 (readElement@0xc42c5e): the ModelItem
-// middle then the explicit name. The fv<=30 path (align + bbox DPoint3d×2
-// + u32) applies to pre-2011 files only and is not implemented (U10).
+// middle only — like type 53 the trailing explicit name is gated off at
+// our format versions (findings N122). The fv<=30 path (align + bbox
+// DPoint3d×2 + u32) applies to pre-2011 files only and is not
+// implemented (U10).
 func (o *ObjectReader) decodeGeometryItem(obj *Object) error {
-	if err := o.decodeModelItem(obj); err != nil {
-		return err
-	}
-	s, err := o.r.readString()
-	obj.ExplicitName = s
-	return err
+	return o.decodeModelItem(obj)
 }
 
 // decodeChildren reads u32 childCount followed by that many objects.
@@ -536,17 +608,15 @@ func (o *ObjectReader) decodeChildren(obj *Object) error {
 }
 
 // decodeGroupNode reads typeID 53 (readElement@0xc3a216): the ModelItem
-// middle, an inline child object vector, then the explicit name.
+// middle and an inline child object vector. The SDK's trailing
+// readExplisitName is version-gated and absent at the format versions in
+// our samples (fv≈100/431/451, real-file walk findings N122); it becomes
+// active only in newer files (U10 gate to pin).
 func (o *ObjectReader) decodeGroupNode(obj *Object) error {
 	if err := o.decodeModelItem(obj); err != nil {
 		return err
 	}
-	if err := o.decodeChildren(obj); err != nil {
-		return err
-	}
-	s, err := o.r.readString()
-	obj.ExplicitName = s
-	return err
+	return o.decodeChildren(obj)
 }
 
 // zstring reads a NUL-terminated string, advancing past the terminator and
