@@ -69,7 +69,8 @@ func TestGroupNodeChildren(t *testing.T) {
 func TestBackref(t *testing.T) {
 	w := NewObjectWriter()
 	w.Name("A", "B")
-	w.WriteBackref(0)
+	// Real files store 100+slot (readObject subtracts 0x64, findings N118).
+	w.WriteBackref(100)
 	w.End()
 
 	or := NewObjectReader(w.Bytes(), formatVersionGate)

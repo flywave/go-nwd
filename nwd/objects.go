@@ -33,6 +33,42 @@ type ObjectReader struct {
 	// FormatVersion mirrors ObjectReaderManager+0x18 (findings N22);
 	// gates documented in analysis/03-model-tree.md §6 (U10).
 	FormatVersion uint32
+	// LogicalStream selects the LogicalHierarchy-stream behaviour of
+	// PartitionNode payloads (E2 readElement@0xc47582): the first
+	// PartitionNode becomes the context root and reads no children;
+	// subsequent ones read a child object vector. In Partition streams
+	// (fv>27) PartitionNodes never read children (N57).
+	LogicalStream bool
+	logicalRoot   bool
+}
+
+// Gap records a skipped stream segment during a tolerant walk.
+type Gap struct {
+	Pos     int    `json:"pos"`
+	Skipped int    `json:"skipped_bytes"`
+	Err     string `json:"error"`
+}
+
+// resync advances past an undecodable segment to the next plausible
+// envelope: any marker in [100, 4200] bound to a typeID <= 200. The marker
+// sequence may run ahead of the local vector (addToObjectVector appends
+// when the slot is out of range), so accept a wide window. Returns the
+// number of bytes skipped (0 when no candidate remains).
+func (o *ObjectReader) resync() int {
+	for p := o.r.pos; p+8 <= len(o.r.buf); p++ {
+		m := binary.LittleEndian.Uint32(o.r.buf[p:])
+		if m < envNewBase || m > envNewBase+4100 {
+			continue
+		}
+		if binary.LittleEndian.Uint32(o.r.buf[p+4:]) > 200 {
+			continue
+		}
+		skip := p - o.r.pos
+		o.r.pos = p
+		return skip
+	}
+	o.r.pos = len(o.r.buf)
+	return 0
 }
 
 type byteReader struct {
@@ -110,6 +146,10 @@ type Object struct {
 	GuidIndex  uint32
 	Attributes []*Object
 
+	// ExplicitName trailing string (readExplisitName) on group / geometry
+	// model items and material attributes (E2 readElement call order).
+	ExplicitName string
+
 	// PartitionNode payload.
 	ModelType *uint32
 	Usage     *int32
@@ -139,17 +179,25 @@ func (o *ObjectReader) ReadObject() (*Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		if int(idx) < 0 || int(idx) >= len(o.vector) {
+		// The stored value is 100+slot (readObject subtracts 0x64 before
+		// the bounds check, readObject@0xc3b526).
+		slot := int(idx) - envNewBase
+		if slot < 0 || slot >= len(o.vector) {
 			return nil, fmt.Errorf("nwd: backref index %d out of range (%d)", idx, len(o.vector))
 		}
+		idx = int32(slot)
 		// Return a clone marker pointing at the slot; semantic fields are
 		// carried by the original object entry recorded in Refs.
 		return &Object{Index: int(idx), TypeID: -1, TypeName: "<backref>"}, nil
 	case marker >= envNewBase:
+		// New object. The SDK does not require markers to be sequential:
+		// addToObjectVector assigns slot marker-100 when it is inside the
+		// vector, otherwise appends (readObject@0xc3b58d /
+		// addToObjectVector@0xc3b416). go-nwd always appends and records
+		// the stream slot.
 		index := int(marker) - envNewBase
-		if index != len(o.vector) {
-			return nil, fmt.Errorf("nwd: new-object marker %d implies index %d but vector is %d",
-				marker, index, len(o.vector))
+		if index < 0 || index > len(o.vector) {
+			index = len(o.vector)
 		}
 		typeID, err := o.r.u32()
 		if err != nil {
@@ -165,7 +213,29 @@ func (o *ObjectReader) ReadObject() (*Object, error) {
 		}
 		return obj, nil
 	default:
-		return nil, fmt.Errorf("nwd: invalid envelope marker %d", marker)
+		// Any other marker value is also a new object (the SDK only
+		// special-cases 0=nil and 1=backref; addToObjectVector treats
+		// marker-100 as an unsigned slot that appends when out of range).
+		index := len(o.vector)
+		if int(marker) >= envNewBase {
+			index = int(marker) - envNewBase
+			if index < 0 || index > len(o.vector) {
+				index = len(o.vector)
+			}
+		}
+		typeID, err := o.r.u32()
+		if err != nil {
+			return nil, err
+		}
+		obj := &Object{Index: index, TypeID: int(typeID), TypeName: ObjTypeName(int(typeID))}
+		// Reserve the vector slot before decoding nested payloads: nested
+		// envelopes may back-reference this object (C++ pushes the
+		// placeholder before the factory runs, readObject@0xc3b67a).
+		o.vector = append(o.vector, ObjectRef{Kind: 2, Index: index, TypeID: int(typeID)})
+		if err := o.decodePayload(obj); err != nil {
+			return nil, err
+		}
+		return obj, nil
 	}
 }
 
@@ -178,9 +248,30 @@ func (o *ObjectReader) decodePayload(obj *Object) error {
 		return o.decodeName(obj)
 	case PartitionNode:
 		return o.decodePartitionNode(obj)
-	case GroupModelItemNode, TypeGeometryModelItem:
+	case GroupModelItemNode:
 		return o.decodeGroupNode(obj)
+	case TypeGeometryModelItem:
+		return o.decodeGeometryItem(obj)
+	case 5, 18: // Name-grammar variants (N118: type 18 as property keys,
+		// type 5 as tree child "Lines"/"LcRevitComposite")
+		return o.decodeName(obj)
+	case 196: // single-string Name variant ("Model Lines", N118); the
+		// string pads to an 8-byte boundary (readString<align1>)
+		s, err := o.r.readString()
+		if err != nil {
+			return err
+		}
+		obj.UserName = s
+		o.r.align(8)
+		return nil
 	default:
+		if kind, ok := transformAttrKindByType[obj.TypeID]; ok {
+			err := o.decodeTransformAttribute(obj, kind)
+			return err
+		}
+		if obj.TypeID == TypeGraphicMaterialAttribute {
+			return o.decodeGraphicMaterialAttribute(obj)
+		}
 		if _, ok := attrKindByType[obj.TypeID]; ok {
 			_, err := o.decodeAttribute(obj)
 			return err
@@ -192,8 +283,133 @@ func (o *ObjectReader) decodePayload(obj *Object) error {
 		if obj.TypeID == TypePublishAttribute {
 			return o.decodePublishAttribute(obj)
 		}
-		return fmt.Errorf("%w: type %d (%s)", ErrUnsupportedType, obj.TypeID, obj.TypeName)
+		return fmt.Errorf("%w: type %d (%s) at %d", ErrUnsupportedType, obj.TypeID, obj.TypeName, o.r.pos)
 	}
+}
+
+// decodeTransformAttribute reads the transform-carrying attribute types
+// (real-file validated on BCCCH LogicalHierarchy, findings N117):
+//
+//	39 TransformAttribute:  explicitName, align8, DMatrix3d (12×f64),
+//	                        u32 reverse, DVector3d (readElement@0xc4311e)
+//	40 TransAttribute:      explicitName, align8, DVector3d translation
+//	41 TransRotationAttr.:  align8, DVector3d translation, quaternion,
+//	                        u32 tail (readElement@0xc437c2)
+//
+// The decoded placement is exposed as Attribute.Transform.
+func (o *ObjectReader) decodeTransformAttribute(obj *Object, kind TransformKind) error {
+	if err := o.decodeModelBase(obj); err != nil {
+		return err
+	}
+	a := &Attribute{Kind: AttrTransform, TypeID: obj.TypeID, UserName: obj.UserName}
+	if obj.ClassName != nil {
+		a.ClassName = obj.ClassName.Name
+	}
+	flags, err := o.r.u32()
+	if err != nil {
+		return err
+	}
+	a.AttrFlags = flags
+	t := &Transform{Kind: kind}
+	switch obj.TypeID {
+	case 39:
+		if a.ExplicitName, err = o.r.readString(); err != nil {
+			return err
+		}
+		o.r.align(8)
+		var m [12]float64
+		for i := range m {
+			if m[i], err = o.r.f64(); err != nil {
+				return err
+			}
+		}
+		// OdGeMatrix3d row-major 3x4 → 4x4 (bottom row 0,0,0,1).
+		t.Matrix = [16]float64{
+			m[0], m[1], m[2], m[3],
+			m[4], m[5], m[6], m[7],
+			m[8], m[9], m[10], m[11],
+			0, 0, 0, 1,
+		}
+		t.HasMatrix = true
+		if _, err = o.r.u32(); err != nil {
+			return err
+		}
+		if _, err = o.r.read3Doubles(); err != nil {
+			return err
+		}
+	case 40:
+		if a.ExplicitName, err = o.r.readString(); err != nil {
+			return err
+		}
+		o.r.align(8)
+		if t.Translation, err = o.r.read3Doubles(); err != nil {
+			return err
+		}
+	case 41:
+		o.r.align(8)
+		if t.Translation, err = o.r.read3Doubles(); err != nil {
+			return err
+		}
+		if t.Rotation, err = o.r.readQuaternion(); err != nil {
+			return err
+		}
+		if _, err = o.r.u32(); err != nil {
+			return err
+		}
+	}
+	a.Transform = t
+	obj.Attribute = a
+	obj.Transform = t
+	return nil
+}
+
+// transformAttrKindByType maps transform-carrying attribute types
+// (E2 OdNwTransformAttributeReader@0xc4311e, OdNwTransAttributeReader,
+// OdNwTransRotationAttributeReader).
+var transformAttrKindByType = map[int]TransformKind{
+	39: TransformMatrix,
+	40: TransformTranslation,
+	41: TransformTransRot,
+}
+
+// TypeGraphicMaterialAttribute is NwObjectType 200; its payload is the
+// base attribute prefix plus a graphic JSON bundle — shared-node indexed
+// for fv>=451 (readSharedObject@0xc3b76e), a full object envelope below.
+const TypeGraphicMaterialAttribute = 200
+
+// decodeGraphicMaterialAttribute reads typeID 200 (readElement@0xc43daa):
+// base attribute prefix, then the graphic bundle by shared-node index
+// (fv>=451) or as a nested envelope object.
+func (o *ObjectReader) decodeGraphicMaterialAttribute(obj *Object) error {
+	if err := o.decodeModelBase(obj); err != nil {
+		return err
+	}
+	a := &Attribute{Kind: AttrGraphicMaterial, TypeID: obj.TypeID, UserName: obj.UserName}
+	if obj.ClassName != nil {
+		a.ClassName = obj.ClassName.Name
+	}
+	flags, err := o.r.u32()
+	if err != nil {
+		return err
+	}
+	a.AttrFlags = flags
+	if o.FormatVersion >= 451 {
+		var idx int32
+		if idx, err = o.r.i32(); err != nil {
+			return err
+		}
+		a.Number = uint32(idx)
+	} else {
+		nested, err := o.ReadObject()
+		if err != nil {
+			return err
+		}
+		if nested != nil {
+			a.Nested = append(a.Nested, nested)
+		}
+	}
+	obj.Attribute = a
+	return nil
 }
 
 func (o *ObjectReader) decodeName(obj *Object) error {
@@ -256,25 +472,47 @@ func (o *ObjectReader) decodeModelItem(obj *Object) error {
 		if err != nil {
 			return err
 		}
-		if attr == nil {
-			break
-		}
+		// A nil slot (marker 0) is a valid empty entry; the count drives
+		// the loop (readObjectVector pushes null entries too).
 		obj.Attributes = append(obj.Attributes, attr)
 	}
 	return nil
 }
 
 // decodePartitionNode reads typeID 32 (real-file verified, findings N56):
-// u32 modelType, then the ModelItem middle (ModelBase + flags + guid +
-// attrCount + attributes). The real Partition stream has no inline
-// child/usage fields after the attributes (the next object is a sibling).
+// u32 modelType (fv>202; else 0), then the ModelItem middle (ModelBase +
+// flags + guid + attrCount + attributes). Children follow only in the
+// LogicalHierarchy stream (and the first node there is the context root,
+// which reads none) or in fv<=27 Partition streams (readElement@0xc47582).
 func (o *ObjectReader) decodePartitionNode(obj *Object) error {
 	mt, err := o.r.u32()
 	if err != nil {
 		return err
 	}
 	obj.ModelType = &mt
-	return o.decodeModelItem(obj)
+	if err := o.decodeModelItem(obj); err != nil {
+		return err
+	}
+	if o.LogicalStream {
+		if !o.logicalRoot {
+			o.logicalRoot = true
+			return nil
+		}
+		return o.decodeChildren(obj)
+	}
+	return nil
+}
+
+// decodeGeometryItem reads typeID 22 (readElement@0xc42c5e): the ModelItem
+// middle then the explicit name. The fv<=30 path (align + bbox DPoint3d×2
+// + u32) applies to pre-2011 files only and is not implemented (U10).
+func (o *ObjectReader) decodeGeometryItem(obj *Object) error {
+	if err := o.decodeModelItem(obj); err != nil {
+		return err
+	}
+	s, err := o.r.readString()
+	obj.ExplicitName = s
+	return err
 }
 
 // decodeChildren reads u32 childCount followed by that many objects.
@@ -291,20 +529,40 @@ func (o *ObjectReader) decodeChildren(obj *Object) error {
 		if err != nil {
 			return err
 		}
-		if child == nil {
-			break
-		}
+		// nil slots are valid empty children (count-driven loop).
 		obj.Children = append(obj.Children, child)
 	}
 	return nil
 }
 
-// decodeGroupNode reads typeID 53/22: ModelItem middle plus children.
+// decodeGroupNode reads typeID 53 (readElement@0xc3a216): the ModelItem
+// middle, an inline child object vector, then the explicit name.
 func (o *ObjectReader) decodeGroupNode(obj *Object) error {
 	if err := o.decodeModelItem(obj); err != nil {
 		return err
 	}
-	return o.decodeChildren(obj)
+	if err := o.decodeChildren(obj); err != nil {
+		return err
+	}
+	s, err := o.r.readString()
+	obj.ExplicitName = s
+	return err
+}
+
+// zstring reads a NUL-terminated string, advancing past the terminator and
+// padding the position to a 4-byte boundary.
+func (r *byteReader) zstring() (string, error) {
+	start := r.pos
+	for r.pos < len(r.buf) && r.buf[r.pos] != 0 {
+		r.pos++
+	}
+	if r.pos >= len(r.buf) {
+		return "", fmt.Errorf("nwd: unterminated string at %d", start)
+	}
+	s := string(r.buf[start:r.pos])
+	r.pos++ // NUL
+	r.align(4)
+	return s, nil
 }
 
 // ErrUnsupportedType means the envelope type has no payload decoder yet.
@@ -389,3 +647,5 @@ func (r *byteReader) i64() (int64, error) {
 	}
 	return int64(v), nil
 }
+
+// f64 is defined in transform.go (shared byteReader helper).

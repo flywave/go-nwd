@@ -2,6 +2,7 @@ package nwd
 
 import (
 	"fmt"
+	"math"
 )
 
 // TreeNode is a decoded model-tree node (PartitionNode /
@@ -164,10 +165,38 @@ func objToNode(o *Object) *TreeNode {
 		n.Name = o.Name
 		n.DisplayName = o.DisplayName
 	}
+	if o.Transform != nil {
+		n.Transform = sanitizeTransform(o.Transform)
+	}
 	for _, c := range o.Children {
 		n.Children = append(n.Children, objToNode(c))
 	}
 	return n
+}
+
+// sanitizeTransform replaces non-finite components with 0 so tree views
+// stay JSON-marshalable even on not-yet-exact attribute grammars.
+func sanitizeTransform(t *Transform) *Transform {
+	out := *t
+	for i := range out.Translation {
+		if math.IsNaN(out.Translation[i]) || math.IsInf(out.Translation[i], 0) {
+			out.Translation[i] = 0
+		}
+	}
+	for i := range out.Rotation {
+		if math.IsNaN(out.Rotation[i]) || math.IsInf(out.Rotation[i], 0) {
+			out.Rotation[i] = 0
+		}
+	}
+	if math.IsNaN(out.Scale) || math.IsInf(out.Scale, 0) {
+		out.Scale = 0
+	}
+	for i := range out.Matrix {
+		if math.IsNaN(out.Matrix[i]) || math.IsInf(out.Matrix[i], 0) {
+			out.Matrix[i] = 0
+		}
+	}
+	return &out
 }
 
 // Census walks a logical stream and counts envelope types without full

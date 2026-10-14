@@ -28,16 +28,18 @@ func main() {
 	}
 	out := struct {
 		*nwd.Metadata
-		Tree             *nwd.Tree          `json:"tree,omitempty"`
-		PartitionRoot    *nwd.PartitionRoot `json:"partition_root,omitempty"`
-		PartitionObjects *nwd.ObjectStream  `json:"partition_objects,omitempty"`
-		Mesh             *nwd.Mesh          `json:"mesh,omitempty"`
-		Schemas          []nwd.Schema       `json:"schemas,omitempty"`
-		Scene            *nwd.Scene         `json:"scene,omitempty"`
-		PropertyNames    []nwd.NameRecord   `json:"property_names,omitempty"`
-		Geometry         *geomSummary       `json:"geometry,omitempty"`
-		Fragments        *fragSummary       `json:"fragments,omitempty"`
-		Validation       *nwd.MeshStats     `json:"validation,omitempty"`
+		Tree             *nwd.Tree             `json:"tree,omitempty"`
+		PartitionRoot    *nwd.PartitionRoot    `json:"partition_root,omitempty"`
+		PartitionObjects *nwd.ObjectStream     `json:"partition_objects,omitempty"`
+		Mesh             *nwd.Mesh             `json:"mesh,omitempty"`
+		Schemas          []nwd.Schema          `json:"schemas,omitempty"`
+		Scene            *nwd.Scene            `json:"scene,omitempty"`
+		PropertyNames    []nwd.NameRecord      `json:"property_names,omitempty"`
+		Geometry         *geomSummary          `json:"geometry,omitempty"`
+		Fragments        *fragSummary          `json:"fragments,omitempty"`
+		Validation       *nwd.MeshStats        `json:"validation,omitempty"`
+		LogicalTree      *nwd.LogicalHierarchy `json:"logical_tree,omitempty"`
+		Guids            []string              `json:"guids,omitempty"`
 	}{Metadata: f.Metadata}
 
 	if idx := f.StreamByName("LcOpNwdPartition"); idx >= 0 {
@@ -52,6 +54,23 @@ func main() {
 			fmt.Fprintln(os.Stderr, "note: full tree decode:", err)
 		} else {
 			out.Tree = tree
+		}
+	}
+
+	// LogicalHierarchy: model browser tree (U19) + PartitionProps block
+	// mapping + GuidStore (findings N117/N118).
+	if idx := f.StreamByName("LcOpNwdLogicalHierarchy"); idx >= 0 {
+		if h, err := f.DecodeLogicalHierarchyStream(idx, f.StreamByName("LcOaPartitionProps") >= 0); err == nil {
+			out.LogicalTree = h
+		} else {
+			fmt.Fprintln(os.Stderr, "note: logical hierarchy:", err)
+		}
+	}
+	if idx := f.StreamByName("LcOpGuidStore"); idx >= 0 {
+		if data, err := f.StreamData(idx); err == nil {
+			if guids, err := nwd.DecodeGuidStore(data); err == nil {
+				out.Guids = guids
+			}
 		}
 	}
 

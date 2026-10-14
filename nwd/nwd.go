@@ -188,6 +188,18 @@ func (f *File) DecodeSchemas(i int) ([]Schema, error) {
 
 // DecodeObjectStream decodes stream i as a tolerant object graph
 // (real-file path, findings N56).
+// DecodeLogicalHierarchyStream decodes the LcOpNwdLogicalHierarchy stream
+// (model browser tree, U19). withPropsBlocks enables the leading
+// PartitionProps block list (present when the file carries
+// LcOaPartitionProps, findings N117).
+func (f *File) DecodeLogicalHierarchyStream(i int, withPropsBlocks bool) (*LogicalHierarchy, error) {
+	data, err := f.StreamData(i)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeLogicalHierarchy(data, withPropsBlocks)
+}
+
 func (f *File) DecodeObjectStream(i int, formatVersion uint32, limit int) (*ObjectStream, error) {
 	data, err := f.c.StreamData(i)
 	if err != nil {

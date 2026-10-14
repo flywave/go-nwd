@@ -88,6 +88,8 @@ func (w *ObjectWriter) GroupNode(userName, classDisplay, className string, flags
 	if writeChildren != nil {
 		writeChildren(w)
 	}
+	// Trailing explicit name (readExplisitName, findings N117).
+	w.String(userName)
 }
 
 // End writes the trailing nil marker (stream terminator).

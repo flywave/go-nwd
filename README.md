@@ -83,6 +83,14 @@ go test ./...
 (publish date 2025-10-31), 212 CDA property keys, and 1,261,016 geometry
 vertices (`cmd/nwdgeom` → PLY point cloud).
 
+Model tree (U19) and property values (U16) are decoded: the
+`LcOpNwdLogicalHierarchy` stream walks into the model browser tree with
+PartitionProps block mapping and the GUID store
+(`DecodeLogicalHierarchyStream`, findings N117–N121); PropertyAttribute
+payloads decode to typed key/value fields (`NwDataType` readData).
+Exotic Name-variant nodes (Model Lines family) degrade to reported gaps
+instead of failing the walk.
+
 Geometry face connectivity is resolved: element child objects are walked
 deterministically and faces are expanded exactly as the SDK does
 (`analysis/findings.md` N74–N90). The type-94 elements that carry no faces
